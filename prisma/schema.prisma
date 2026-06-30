@@ -12,3 +12,190 @@ datasource db {
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
+
+model User {
+  id            String    @id @map("id") @db.Uuid
+  name          String    @map("name") @db.VarChar(36)
+  email         String    @unique @map("email") @db.VarChar(255)
+  studentId     String    @unique @map("student_id") @db.VarChar(36)
+  role          String    @default("student") @map("role") @db.VarChar(36)
+  status        String    @default("active") @map("status") @db.VarChar(36)
+  tokenBalance  Int       @default(0) @map("token_balance")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  deletedAt     DateTime? @map("deleted_at")
+  agreedPrivacy Boolean   @default(false) @map("agreed_privacy")
+  agreedAt      DateTime? @map("agreed_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  orders             Order[]
+  contentPosts       ContentPost[]
+  whitelistedAccount WhitelistedUser?
+  invitedWhitelists  WhitelistedUser[] @relation("WhitelistInviter")
+  changedOrderLogs   OrderStatusLog[]  @relation("OrderStatusLogChanger")
+  adminActionLogs    AdminActionLog[]  @relation("AdminActionLogAdmin")
+  tokenLogsAsAdmin   TokenLog[]        @relation("TokenLogAdmin")
+  tokenLogsAsUser    TokenLog[]        @relation("TokenLogUser")
+
+  @@map("users")
+}
+
+model WhitelistedUser {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  userId     String?   @unique @map("user_id") @db.Uuid
+  email      String    @unique @map("email") @db.VarChar(255)
+  name       String    @map("name") @db.VarChar(36)
+  studentId  String    @unique @map("student_id") @db.VarChar(36)
+  role       String    @default("student") @map("role") @db.VarChar(36)
+  status     String    @default("not_invited") @map("status") @db.VarChar(36)
+  invitedBy  String?   @map("invited_by") @db.Uuid
+  invitedAt  DateTime? @map("invited_at")
+  acceptedAt DateTime? @map("accepted_at")
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user    User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  inviter User? @relation("WhitelistInviter", fields: [invitedBy], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@map("whitelisted_users")
+}
+
+model Product {
+  id            Int       @id @default(autoincrement()) @map("id")
+  name          String    @map("name") @db.VarChar(36)
+  description   String?   @map("description") @db.Text
+  price         Int       @map("price")
+  stockQuantity Int       @map("stock_quantity")
+  imageUrl      String?   @map("image_url") @db.Text
+  isSoldOut     Boolean   @default(false) @map("is_sold_out")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime? @map("updated_at")
+
+  orders Order[]
+
+  @@index([isActive])
+  @@map("products")
+}
+
+model Order {
+  id          Int       @id @default(autoincrement()) @map("id")
+  userId      String    @map("user_id") @db.Uuid
+  productId   Int       @map("product_id")
+  status      String    @map("status") @db.VarChar(36)
+  totalAmount Int       @map("total_amount")
+  adminNote   String?   @map("admin_note") @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime? @map("updated_at")
+  quantity    Int       @map("quantity")
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  product    Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  statusLogs OrderStatusLog[]
+
+  @@index([userId])
+  @@index([productId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderStatusLog {
+  id           Int      @id @default(autoincrement()) @map("id")
+  changedBy    String   @map("changed_by") @db.Uuid
+  orderId      Int      @map("order_id")
+  beforeStatus String   @map("before_status") @db.VarChar(36)
+  afterStatus  String   @map("after_status") @db.VarChar(36)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  changer User  @relation("OrderStatusLogChanger", fields: [changedBy], references: [id], onDelete: Restrict)
+  order   Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([changedBy])
+  @@index([orderId])
+  @@map("order_status_logs")
+}
+
+model ContentPost {
+  id          Int       @id @default(autoincrement()) @map("id")
+  authorId    String    @map("author_id") @db.Uuid
+  type        String    @map("type") @db.VarChar(36)
+  title       String    @map("title") @db.VarChar(255)
+  content     String?   @map("content") @db.Text
+  status      String    @map("status") @db.VarChar(36)
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  author User           @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  images ContentImage[]
+
+  @@index([authorId])
+  @@index([type])
+  @@index([status])
+  @@map("content_posts")
+}
+
+model ContentImage {
+  id        Int      @id @default(autoincrement()) @map("id")
+  postId    Int      @map("post_id")
+  imageUrl  String   @map("image_url") @db.Text
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post ContentPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@map("content_images")
+}
+
+model Club {
+  id           Int       @id @default(autoincrement()) @map("id")
+  name         String    @map("name") @db.VarChar(36)
+  category     String?   @map("category") @db.VarChar(36)
+  description  String?   @map("description") @db.Text
+  instagramUrl String?   @map("instagram_url") @db.Text
+  contactUrl   String?   @map("contact_url") @db.Text
+  imageUrl     String?   @map("image_url") @db.Text
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime? @map("updated_at")
+  leader       String?   @map("leader") @db.VarChar(36)
+  viceLeader   String?   @map("vice_leader") @db.VarChar(36)
+
+  @@index([isActive])
+  @@map("clubs")
+}
+
+model AdminActionLog {
+  id         Int      @id @default(autoincrement()) @map("id")
+  adminId    String   @map("admin_id") @db.Uuid
+  targetType String   @map("target_type") @db.VarChar(36)
+  targetId   Int?     @map("target_id")
+  action     String   @map("action") @db.VarChar(36)
+  reason     String?  @map("reason") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  admin User @relation("AdminActionLogAdmin", fields: [adminId], references: [id], onDelete: Restrict)
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+  @@map("admin_action_logs")
+}
+
+model TokenLog {
+  id          Int      @id @default(autoincrement()) @map("id")
+  adminId     String   @map("admin_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  beforeValue Int      @map("before_value")
+  afterValue  Int      @map("after_value")
+  delta       Int      @map("delta")
+  reason      String   @map("reason") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  admin User @relation("TokenLogAdmin", fields: [adminId], references: [id], onDelete: Restrict)
+  user  User @relation("TokenLogUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([adminId])
+  @@index([userId])
+  @@map("token_logs")
+}
