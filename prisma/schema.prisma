@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,84 +11,231 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model User {
-  id            String    @id @map("id") @db.Uuid
-  name          String    @map("name") @db.VarChar(36)
-  email         String    @unique @map("email") @db.VarChar(255)
-  studentId     String    @unique @map("student_id") @db.VarChar(36)
-  role          String    @default("student") @map("role") @db.VarChar(36)
-  status        String    @default("active") @map("status") @db.VarChar(36)
-  tokenBalance  Int       @default(0) @map("token_balance")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  deletedAt     DateTime? @map("deleted_at")
-  agreedPrivacy Boolean   @default(false) @map("agreed_privacy")
-  agreedAt      DateTime? @map("agreed_at")
-  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+// ======================================================
+// Enums
+// ======================================================
 
-  orders             Order[]
-  contentPosts       ContentPost[]
-  whitelistedAccount WhitelistedUser?
+enum UserRole {
+  STUDENT @map("student")
+  ADMIN   @map("admin")
+
+  @@map("user_role")
+}
+
+enum UserStatus {
+  ACTIVE  @map("active")
+  BLOCKED @map("blocked")
+
+  @@map("user_status")
+}
+
+enum WhitelistInvitationStatus {
+  PENDING  @map("pending")
+  INVITED  @map("invited")
+  ACCEPTED @map("accepted")
+  EXPIRED  @map("expired")
+  FAILED   @map("failed")
+
+  @@map("whitelist_invitation_status")
+}
+
+enum InvitationLinkStatus {
+  ACTIVE   @map("active")
+  ACCEPTED @map("accepted")
+  EXPIRED  @map("expired")
+  REVOKED  @map("revoked")
+  FAILED   @map("failed")
+
+  @@map("invitation_link_status")
+}
+
+enum PublicationStatus {
+  DRAFT     @map("draft")
+  PUBLISHED @map("published")
+  HIDDEN    @map("hidden")
+
+  @@map("publication_status")
+}
+
+enum ContentPostType {
+  PARTNERSHIP  @map("partnership")
+  EVENT        @map("event")
+  CO_PURCHASE  @map("co-purchase")
+  CAREER       @map("career")
+  ANNOUNCEMENT @map("announcement")
+  KSA          @map("KSA")
+
+  @@map("content_post_type")
+}
+
+enum FileStatus {
+  DELETED   @map("deleted")
+  PENDING   @map("pending")
+  COMPLETED @map("completed")
+  FAILED    @map("failed")
+
+  @@map("file_status")
+}
+
+enum FilePurpose {
+  POST_IMAGE         @map("post image")
+  PRODUCT_IMAGE      @map("product image")
+  GENERAL_ATTACHMENT @map("general attachment")
+
+  @@map("file_purpose")
+}
+
+enum OrderStatus {
+  ORDERED   @map("ordered")
+  ACCEPTED  @map("accepted")
+  DELIVERED @map("delivered")
+
+  @@map("order_status")
+}
+
+// ======================================================
+// Models
+// ======================================================
+
+model User {
+  id            String     @id @map("id") @db.Uuid
+  name          String     @map("name") @db.VarChar(128)
+  email         String     @unique @map("email") @db.VarChar(255)
+  studentNumber String     @unique @map("student_number") @db.VarChar(36)
+  role          UserRole   @default(STUDENT) @map("role")
+  status        UserStatus @default(ACTIVE) @map("status")
+  tokenBalance  Int        @default(0) @map("token_balance")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  deletedAt     DateTime?  @map("deleted_at")
+  agreedPrivacy Boolean    @default(false) @map("agreed_privacy")
+  agreedAt      DateTime?  @map("agreed_at")
+  updatedAt     DateTime   @default(now()) @updatedAt @map("updated_at")
+
+  orders       Order[]
+  contentPosts ContentPost[]
+
+  whitelistedAccount WhitelistedUser?  @relation("WhitelistAccount")
   invitedWhitelists  WhitelistedUser[] @relation("WhitelistInviter")
-  changedOrderLogs   OrderStatusLog[]  @relation("OrderStatusLogChanger")
-  adminActionLogs    AdminActionLog[]  @relation("AdminActionLogAdmin")
-  tokenLogsAsAdmin   TokenLog[]        @relation("TokenLogAdmin")
-  tokenLogsAsUser    TokenLog[]        @relation("TokenLogUser")
+  sentInvitations    Invitation[]      @relation("InvitationSender")
+  uploadedFiles      File[]            @relation("FileUploader")
+
+  changedOrderLogs OrderStatusLog[] @relation("OrderStatusLogChanger")
+  adminActionLogs  AdminActionLog[] @relation("AdminActionLogAdmin")
+
+  tokenLogsAsAdmin   TokenLog[]   @relation("TokenLogAdmin")
+  tokenLogsAsUser    TokenLog[]   @relation("TokenLogUser")
+  createdTokenEvents TokenEvent[] @relation("TokenEventCreator")
+
+  updatedAdminMemos AdminMemo[] @relation("AdminMemoUpdater")
 
   @@map("users")
 }
 
 model WhitelistedUser {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
-  userId     String?   @unique @map("user_id") @db.Uuid
-  email      String    @unique @map("email") @db.VarChar(255)
-  name       String    @map("name") @db.VarChar(36)
-  studentId  String    @unique @map("student_id") @db.VarChar(36)
-  role       String    @default("student") @map("role") @db.VarChar(36)
-  status     String    @default("not_invited") @map("status") @db.VarChar(36)
-  invitedBy  String?   @map("invited_by") @db.Uuid
-  invitedAt  DateTime? @map("invited_at")
-  acceptedAt DateTime? @map("accepted_at")
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id               String                    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  userId           String?                   @unique @map("user_id") @db.Uuid
+  email            String                    @unique @map("email") @db.VarChar(255)
+  name             String                    @map("name") @db.VarChar(36)
+  studentNumber    String                    @unique @map("student_number") @db.VarChar(36)
+  invitationStatus WhitelistInvitationStatus @default(PENDING) @map("invitation_status")
+  invitedBy        String?                   @map("invited_by") @db.Uuid
+  invitedAt        DateTime?                 @map("invited_at")
+  acceptedAt       DateTime?                 @map("accepted_at")
+  updatedAt        DateTime                  @default(now()) @updatedAt @map("updated_at")
+  createdAt        DateTime                  @default(now()) @map("created_at")
 
-  user    User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user    User? @relation("WhitelistAccount", fields: [userId], references: [id], onDelete: SetNull)
   inviter User? @relation("WhitelistInviter", fields: [invitedBy], references: [id], onDelete: SetNull)
 
-  @@index([status])
+  invitations Invitation[]
+
+  @@index([invitationStatus])
+  @@index([invitedBy])
   @@map("whitelisted_users")
 }
 
+model Invitation {
+  id              String               @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  whitelistUserId String               @map("whitelist_user_id") @db.Uuid
+  sentBy          String?              @map("sent_by") @db.Uuid
+  tokenHash       String               @unique @map("token_hash") @db.VarChar(255)
+  linkStatus      InvitationLinkStatus @default(ACTIVE) @map("link_status")
+  sentAt          DateTime             @map("sent_at")
+  expiresAt       DateTime             @map("expires_at")
+  acceptedAt      DateTime?            @map("accepted_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  whitelistUser WhitelistedUser @relation(fields: [whitelistUserId], references: [id], onDelete: Cascade)
+  sender        User?           @relation("InvitationSender", fields: [sentBy], references: [id], onDelete: SetNull)
+
+  @@index([whitelistUserId])
+  @@index([sentBy])
+  @@index([linkStatus])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+model File {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  uploadedBy   String?     @map("uploaded_by") @db.Uuid
+  originalName String      @map("original_name") @db.VarChar(255)
+  storagePath  String      @map("storage_path") @db.Text
+  fileUrl      String      @map("file_url") @db.Text
+  contentType  String      @map("content_type") @db.VarChar(128)
+  fileSize     Int         @map("file_size")
+  purpose      FilePurpose @map("purpose")
+  status       FileStatus  @default(PENDING) @map("status")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  deletedAt    DateTime?   @map("deleted_at")
+
+  uploader User? @relation("FileUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  products      Product[]
+  contentImages ContentImage[]
+
+  @@index([uploadedBy])
+  @@index([status])
+  @@index([purpose])
+  @@map("files")
+}
+
 model Product {
-  id            Int       @id @default(autoincrement()) @map("id")
-  name          String    @map("name") @db.VarChar(36)
-  description   String?   @map("description") @db.Text
-  price         Int       @map("price")
-  stockQuantity Int       @map("stock_quantity")
-  imageUrl      String?   @map("image_url") @db.Text
-  isSoldOut     Boolean   @default(false) @map("is_sold_out")
-  isActive      Boolean   @default(true) @map("is_active")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime? @map("updated_at")
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  name              String            @map("name") @db.VarChar(100)
+  description       String?           @map("description") @db.Text
+  price             Int               @map("price")
+  stockQuantity     Int               @default(0) @map("stock_quantity")
+  imageFileId       String?           @map("image_file_id") @db.Uuid
+  publicationStatus PublicationStatus @default(DRAFT) @map("publication_status")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at")
+  deletedAt         DateTime?         @map("deleted_at")
+
+  imageFile File? @relation(fields: [imageFileId], references: [id], onDelete: SetNull)
 
   orders Order[]
 
-  @@index([isActive])
+  @@index([imageFileId])
+  @@index([publicationStatus])
   @@map("products")
 }
 
 model Order {
-  id          Int       @id @default(autoincrement()) @map("id")
-  userId      String    @map("user_id") @db.Uuid
-  productId   Int       @map("product_id")
-  status      String    @map("status") @db.VarChar(36)
-  totalAmount Int       @map("total_amount")
-  adminNote   String?   @map("admin_note") @db.Text
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime? @map("updated_at")
-  quantity    Int       @map("quantity")
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  userId      String      @map("user_id") @db.Uuid
+  productId   String      @map("product_id") @db.Uuid
+  quantity    Int         @map("quantity")
+  unitPrice   Int         @map("unit_price")
+  totalAmount Int         @map("total_amount")
+  status      OrderStatus @default(ORDERED) @map("status")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at")
+  acceptedAt  DateTime?   @map("accepted_at")
+  deliveredAt DateTime?   @map("delivered_at")
 
-  user       User             @relation(fields: [userId], references: [id], onDelete: Restrict)
-  product    Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
   statusLogs OrderStatusLog[]
 
   @@index([userId])
@@ -100,12 +245,12 @@ model Order {
 }
 
 model OrderStatusLog {
-  id           Int      @id @default(autoincrement()) @map("id")
-  changedBy    String   @map("changed_by") @db.Uuid
-  orderId      Int      @map("order_id")
-  beforeStatus String   @map("before_status") @db.VarChar(36)
-  afterStatus  String   @map("after_status") @db.VarChar(36)
-  createdAt    DateTime @default(now()) @map("created_at")
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  changedBy    String      @map("changed_by") @db.Uuid
+  orderId      String      @map("order_id") @db.Uuid
+  beforeStatus OrderStatus @map("before_status")
+  afterStatus  OrderStatus @map("after_status")
+  createdAt    DateTime    @default(now()) @map("created_at")
 
   changer User  @relation("OrderStatusLogChanger", fields: [changedBy], references: [id], onDelete: Restrict)
   order   Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -116,41 +261,49 @@ model OrderStatusLog {
 }
 
 model ContentPost {
-  id          Int       @id @default(autoincrement()) @map("id")
-  authorId    String    @map("author_id") @db.Uuid
-  type        String    @map("type") @db.VarChar(36)
-  title       String    @map("title") @db.VarChar(255)
-  content     String?   @map("content") @db.Text
-  status      String    @map("status") @db.VarChar(36)
-  publishedAt DateTime? @map("published_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  authorId       String            @map("author_id") @db.Uuid
+  type           ContentPostType   @map("type")
+  title          String            @map("title") @db.VarChar(255)
+  content        String?           @map("content") @db.Text
+  status         PublicationStatus @default(DRAFT) @map("status")
+  publishedAt    DateTime?         @map("published_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @default(now()) @updatedAt @map("updated_at")
+  eventStartDate DateTime?         @map("event_start_date") @db.Date
+  eventEndDate   DateTime?         @map("event_end_date") @db.Date
+  showOnCalendar Boolean           @default(false) @map("show_on_calendar")
+  deletedAt      DateTime?         @map("deleted_at")
 
-  author User           @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
   images ContentImage[]
 
   @@index([authorId])
   @@index([type])
   @@index([status])
+  @@index([showOnCalendar, eventStartDate])
   @@map("content_posts")
 }
 
 model ContentImage {
-  id        Int      @id @default(autoincrement()) @map("id")
-  postId    Int      @map("post_id")
-  imageUrl  String   @map("image_url") @db.Text
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at")
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  contentPostId String   @map("content_post_id") @db.Uuid
+  fileId        String   @map("file_id") @db.Uuid
+  sortOrder     Int      @default(1) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
 
-  post ContentPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  post ContentPost @relation(fields: [contentPostId], references: [id], onDelete: Cascade)
+  file File        @relation(fields: [fileId], references: [id], onDelete: Restrict)
 
-  @@index([postId])
+  @@index([contentPostId])
+  @@index([fileId])
   @@map("content_images")
 }
 
 model Club {
   id           Int       @id @default(autoincrement()) @map("id")
-  name         String    @map("name") @db.VarChar(36)
+  name         String    @map("name") @db.VarChar(128)
   category     String?   @map("category") @db.VarChar(36)
   description  String?   @map("description") @db.Text
   instagramUrl String?   @map("instagram_url") @db.Text
@@ -159,21 +312,35 @@ model Club {
   isActive     Boolean   @default(true) @map("is_active")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime? @map("updated_at")
-  leader       String?   @map("leader") @db.VarChar(36)
-  viceLeader   String?   @map("vice_leader") @db.VarChar(36)
+  leader       String?   @map("leader") @db.VarChar(128)
+  viceLeader   String?   @map("vice_leader") @db.VarChar(128)
 
   @@index([isActive])
   @@map("clubs")
 }
 
+model AdminMemo {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+  content   String?  @map("content") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  updater User? @relation("AdminMemoUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@index([updatedBy])
+  @@map("admin_memos")
+}
+
 model AdminActionLog {
   id         Int      @id @default(autoincrement()) @map("id")
   adminId    String   @map("admin_id") @db.Uuid
-  targetType String   @map("target_type") @db.VarChar(36)
-  targetId   Int?     @map("target_id")
+  targetType String?  @map("target_type") @db.VarChar(36)
+  targetId   String?  @map("target_id") @db.VarChar(128)
   action     String   @map("action") @db.VarChar(36)
   reason     String?  @map("reason") @db.Text
   createdAt  DateTime @default(now()) @map("created_at")
+  metadata   Json?    @map("metadata") @db.JsonB
 
   admin User @relation("AdminActionLogAdmin", fields: [adminId], references: [id], onDelete: Restrict)
 
@@ -182,20 +349,38 @@ model AdminActionLog {
   @@map("admin_action_logs")
 }
 
-model TokenLog {
-  id          Int      @id @default(autoincrement()) @map("id")
-  adminId     String   @map("admin_id") @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  beforeValue Int      @map("before_value")
-  afterValue  Int      @map("after_value")
-  delta       Int      @map("delta")
-  reason      String   @map("reason") @db.Text
-  createdAt   DateTime @default(now()) @map("created_at")
+model TokenEvent {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  createdBy String    @map("created_by") @db.Uuid
+  eventName String    @map("event_name") @db.VarChar(128)
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
 
-  admin User @relation("TokenLogAdmin", fields: [adminId], references: [id], onDelete: Restrict)
-  user  User @relation("TokenLogUser", fields: [userId], references: [id], onDelete: Restrict)
+  creator User @relation("TokenEventCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  tokenLogs TokenLog[]
+
+  @@index([createdBy])
+  @@map("token_events")
+}
+
+model TokenLog {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  adminId      String   @map("admin_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  beforeValue  Int      @map("before_value")
+  afterValue   Int      @map("after_value")
+  delta        Int      @map("delta")
+  reason       String   @map("reason") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+  tokenEventId String   @map("token_event_id") @db.Uuid
+
+  admin      User       @relation("TokenLogAdmin", fields: [adminId], references: [id], onDelete: Restrict)
+  user       User       @relation("TokenLogUser", fields: [userId], references: [id], onDelete: Restrict)
+  tokenEvent TokenEvent @relation(fields: [tokenEventId], references: [id], onDelete: Restrict)
 
   @@index([adminId])
   @@index([userId])
+  @@index([tokenEventId])
   @@map("token_logs")
 }
