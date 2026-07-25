@@ -93,6 +93,44 @@ enum OrderStatus {
   @@map("order_status")
 }
 
+enum AdminActionType {
+  USER       @map("user")
+  WHITELIST  @map("whitelist")
+  INVITATION @map("invitation")
+  CONTENT    @map("content")
+  PRODUCT    @map("product")
+  ORDER      @map("order")
+  TOKEN      @map("token")
+  MEMO       @map("memo")
+
+  @@map("admin_action_type")
+}
+
+enum AdminAction {
+  UPDATE_USER_ROLE                  @map("update_user_role")
+  UPDATE_USER_STATUS                @map("update_user_status")
+  CREATE_WHITELIST_USER             @map("create_whitelist_user")
+  IMPORT_WHITELIST_USERS            @map("import_whitelist_users")
+  DELETE_WHITELIST_USER             @map("delete_whitelist_user")
+  SEND_INVITATION                   @map("send_invitation")
+  RESEND_INVITATION                 @map("resend_invitation")
+  CREATE_CONTENT_POST               @map("create_content_post")
+  UPDATE_CONTENT_POST               @map("update_content_post")
+  UPDATE_CONTENT_POST_STATUS        @map("update_content_post_status")
+  DELETE_CONTENT_POST               @map("delete_content_post")
+  CREATE_PRODUCT                    @map("create_product")
+  UPDATE_PRODUCT                    @map("update_product")
+  UPDATE_PRODUCT_PUBLICATION_STATUS @map("update_product_publication_status")
+  DELETE_PRODUCT                    @map("delete_product")
+  UPDATE_ORDER_STATUS               @map("update_order_status")
+  CREATE_TOKEN_EVENT                @map("create_token_event")
+  GRANT_TOKEN                       @map("grant_token")
+  DELETE_TOKEN_EVENT                @map("delete_token_event")
+  UPDATE_MEMO                       @map("update_memo")
+
+  @@map("admin_action")
+}
+
 // ======================================================
 // Models
 // ======================================================
@@ -333,19 +371,18 @@ model AdminMemo {
 }
 
 model AdminActionLog {
-  id         Int      @id @default(autoincrement()) @map("id")
-  adminId    String   @map("admin_id") @db.Uuid
-  targetType String?  @map("target_type") @db.VarChar(36)
-  targetId   String?  @map("target_id") @db.VarChar(128)
-  action     String   @map("action") @db.VarChar(36)
-  reason     String?  @map("reason") @db.Text
-  createdAt  DateTime @default(now()) @map("created_at")
-  metadata   Json?    @map("metadata") @db.JsonB
+  id         Int             @id @default(autoincrement()) @map("id")
+  adminId    String          @map("admin_id") @db.Uuid
+  actionType AdminActionType @map("action_type")
+  targetId   String?         @map("target_id") @db.VarChar(128)
+  action     AdminAction     @map("action")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  metadata   Json?           @map("metadata") @db.JsonB
 
   admin User @relation("AdminActionLogAdmin", fields: [adminId], references: [id], onDelete: Restrict)
 
   @@index([adminId])
-  @@index([targetType, targetId])
+  @@index([actionType, targetId])
   @@map("admin_action_logs")
 }
 
