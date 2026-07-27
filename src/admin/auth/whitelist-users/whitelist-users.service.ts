@@ -2,10 +2,95 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { AdminAction, AdminActionType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateWhitelistUserDto } from './dto/create-whitelist-user.dto';
+import { GetWhitelistUsersQueryDto } from './dto/get-whitelist-users-query.dto';
 
 @Injectable()
 export class WhitelistUsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async findAll(query: GetWhitelistUsersQueryDto) {
+    const { page, limit, keyword, invitationStatus, sort, order } = query;
+
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.WhitelistedUserWhereInput = {
+      ...(keyword
+        ? {
+            OR: [
+              {
+                name: {
+                  contains: keyword,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                email: {
+                  contains: keyword,
+                  mode: 'insensitive',
+                },
+              },
+              {
+                studentNumber: {
+                  contains: keyword,
+                  mode: 'insensitive',
+                },
+              },
+            ],
+          }
+        : {}),
+      ...(invitationStatus
+        ? {
+            invitationStatus,
+          }
+        : {}),
+    };
+
+    const primaryOrderBy = {
+      [sort]: order,
+    } as Prisma.WhitelistedUserOrderByWithRelationInput;
+
+    const [whitelistUsers, totalCount] = await this.prisma.$transaction([
+      this.prisma.whitelistedUser.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: [
+          primaryOrderBy,
+          {
+            id: 'asc',
+          },
+        ],
+        select: {
+          id: true,
+          name: true,
+          studentNumber: true,
+          email: true,
+          invitationStatus: true,
+          invitedAt: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.whitelistedUser.count({
+        where,
+      }),
+    ]);
+
+    return {
+      items: whitelistUsers.map((whitelistUser) => ({
+        whitelistUserId: whitelistUser.id,
+        name: whitelistUser.name,
+        studentNumber: whitelistUser.studentNumber,
+        email: whitelistUser.email,
+        invitationStatus: whitelistUser.invitationStatus,
+        invitedAt: whitelistUser.invitedAt,
+        createdAt: whitelistUser.createdAt,
+      })),
+      page,
+      limit,
+      totalCount,
+      totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+    };
+  }
 
   async create(
     createWhitelistUserDto: CreateWhitelistUserDto,
