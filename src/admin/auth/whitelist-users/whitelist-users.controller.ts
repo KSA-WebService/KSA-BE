@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Post,
   Query,
+  Delete,
   Req,
   UseGuards,
   Param,
@@ -40,6 +41,15 @@ export class WhitelistUsersController {
     whitelistUserId: string,
   ) {
     return this.whitelistUsersService.findOne(whitelistUserId);
+  }
+
+  @Delete(':whitelistUserId')
+  async remove(
+    @Param('whitelistUserId', new ParseUUIDPipe({ version: '4' }))
+    whitelistUserId: string,
+    @Req() request: { user: { id: string } },
+  ) {
+    return this.whitelistUsersService.remove(whitelistUserId, request.user.id);
   }
 
   @Post()

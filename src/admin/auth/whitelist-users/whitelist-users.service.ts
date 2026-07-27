@@ -3,7 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AdminAction, AdminActionType, Prisma } from '@prisma/client';
+import {
+  AdminAction,
+  AdminActionType,
+  WhitelistInvitationStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateWhitelistUserDto } from './dto/create-whitelist-user.dto';
 import { GetWhitelistUsersQueryDto } from './dto/get-whitelist-users-query.dto';
@@ -180,6 +185,71 @@ export class WhitelistUsersService {
     };
   }
 
+  async remove(whitelistUserId: string, adminId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const whitelistUser = await tx.whitelistedUser.findUnique({
+        where: {
+          id: whitelistUserId,
+        },
+        select: {
+          id: true,
+          name: true,
+          studentNumber: true,
+          email: true,
+          invitationStatus: true,
+          userId: true,
+        },
+      });
+
+      if (!whitelistUser) {
+        throw new NotFoundException({
+          errorCode: 'W404',
+          message: 'Whitelist user not found',
+          data: {
+            whitelistUserId,
+          },
+        });
+      }
+
+      if (
+        whitelistUser.invitationStatus === WhitelistInvitationStatus.ACCEPTED ||
+        whitelistUser.userId !== null
+      ) {
+        throw new ConflictException({
+          errorCode: 'W409_ACCEPTED',
+          message: 'An accepted whitelist user cannot be deleted',
+          data: {
+            whitelistUserId,
+          },
+        });
+      }
+
+      await tx.whitelistedUser.delete({
+        where: {
+          id: whitelistUserId,
+        },
+      });
+
+      await tx.adminActionLog.create({
+        data: {
+          adminId,
+          actionType: AdminActionType.WHITELIST,
+          action: AdminAction.DELETE_WHITELIST_USER,
+          targetId: whitelistUserId,
+          metadata: {
+            name: whitelistUser.name,
+            studentNumber: whitelistUser.studentNumber,
+            email: whitelistUser.email,
+            invitationStatus: whitelistUser.invitationStatus,
+          },
+        },
+      });
+
+      return {
+        deletedWhitelistUserId: whitelistUserId,
+      };
+    });
+  }
   async create(
     createWhitelistUserDto: CreateWhitelistUserDto,
     adminId: string,
