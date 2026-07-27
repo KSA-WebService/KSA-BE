@@ -12,7 +12,7 @@ export class UsersService {
         id: true,
         name: true,
         email: true,
-        studentId: true,
+        studentNumber: true,
         role: true,
         status: true,
         tokenBalance: true,
