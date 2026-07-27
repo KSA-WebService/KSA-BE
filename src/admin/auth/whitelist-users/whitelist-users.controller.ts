@@ -18,6 +18,10 @@ import { SupabaseAuthGuard } from '../../../auth/supabase-auth.guard';
 import { CreateWhitelistUserDto } from './dto/create-whitelist-user.dto';
 import { WhitelistUsersService } from './whitelist-users.service';
 import { GetWhitelistUsersQueryDto } from './dto/get-whitelist-users-query.dto';
+import {
+  ImportWhitelistUsersDto,
+  ImportWhitelistUsersResponse,
+} from './dto/import-whitelist-users.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -50,6 +54,15 @@ export class WhitelistUsersController {
     @Req() request: { user: { id: string } },
   ) {
     return this.whitelistUsersService.remove(whitelistUserId, request.user.id);
+  }
+
+  @Post('import')
+  @HttpCode(HttpStatus.OK)
+  async importUsers(
+    @Body() dto: ImportWhitelistUsersDto,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<ImportWhitelistUsersResponse> {
+    return this.whitelistUsersService.importUsers(dto, request.user.id);
   }
 
   @Post()

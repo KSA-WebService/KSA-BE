@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -12,7 +13,40 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateWhitelistUserDto } from './dto/create-whitelist-user.dto';
 import { GetWhitelistUsersQueryDto } from './dto/get-whitelist-users-query.dto';
+import { isEmail } from 'class-validator';
+import {
+  ImportRowResult,
+  ImportRowStatus,
+  ImportWhitelistUsersDto,
+  ImportWhitelistUsersResponse,
+  WhitelistImportDuplicatePolicy,
+} from './dto/import-whitelist-users.dto';
 
+interface NormalizedImportUser {
+  rowIndex: number;
+  name: string;
+  studentNumber: string;
+  email: string;
+}
+interface ImportRowValidation {
+  row: NormalizedImportUser | null;
+  email: string;
+  studentNumber: string;
+  errorMessage: string | null;
+}
+
+type ImportAction =
+  | {
+      type: 'CREATE';
+      row: NormalizedImportUser;
+      resultIndex: number;
+    }
+  | {
+      type: 'UPDATE';
+      row: NormalizedImportUser;
+      resultIndex: number;
+      whitelistUserId: string;
+    };
 @Injectable()
 export class WhitelistUsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -250,6 +284,485 @@ export class WhitelistUsersService {
       };
     });
   }
+
+  async importUsers(
+    dto: ImportWhitelistUsersDto,
+    adminId: string,
+  ): Promise<ImportWhitelistUsersResponse> {
+    const results = new Array<ImportRowResult>(dto.users.length);
+
+    const validRows: NormalizedImportUser[] = [];
+    const invalidResults: ImportRowResult[] = [];
+    const inputDuplicateResults: ImportRowResult[] = [];
+
+    const seenEmails = new Set<string>();
+    const seenStudentNumbers = new Set<string>();
+
+    for (let index = 0; index < dto.users.length; index++) {
+      const rowIndex = index + 1;
+
+      const validation = this.validateAndNormalizeImportRow(
+        dto.users[index],
+        rowIndex,
+      );
+
+      if (!validation.row) {
+        const result: ImportRowResult = {
+          rowIndex,
+          email: validation.email,
+          studentNumber: validation.studentNumber,
+          status: 'FAILED',
+          whitelistUserId: null,
+          errorMessage: validation.errorMessage,
+        };
+
+        results[index] = result;
+        invalidResults.push(result);
+        continue;
+      }
+
+      const row = validation.row;
+
+      const duplicateWithinRequest =
+        seenEmails.has(row.email) || seenStudentNumbers.has(row.studentNumber);
+
+      if (duplicateWithinRequest) {
+        const status: ImportRowStatus =
+          dto.onDuplicate === WhitelistImportDuplicatePolicy.SKIP
+            ? 'SKIPPED'
+            : 'FAILED';
+
+        const result: ImportRowResult = {
+          rowIndex,
+          email: row.email,
+          studentNumber: row.studentNumber,
+          status,
+          whitelistUserId: null,
+          errorMessage: 'Duplicate email or student number within the request',
+        };
+
+        results[index] = result;
+
+        if (dto.onDuplicate === WhitelistImportDuplicatePolicy.FAIL) {
+          inputDuplicateResults.push(result);
+        }
+
+        continue;
+      }
+
+      seenEmails.add(row.email);
+      seenStudentNumbers.add(row.studentNumber);
+      validRows.push(row);
+    }
+
+    if (
+      dto.onDuplicate === WhitelistImportDuplicatePolicy.FAIL &&
+      invalidResults.length > 0
+    ) {
+      throw new BadRequestException({
+        errorCode: 'W400_IMPORT_INVALID',
+        message: 'Invalid data was found in the whitelist import',
+        data: {
+          results: invalidResults,
+        },
+      });
+    }
+
+    if (
+      dto.onDuplicate === WhitelistImportDuplicatePolicy.FAIL &&
+      inputDuplicateResults.length > 0
+    ) {
+      throw new ConflictException({
+        errorCode: 'W409_IMPORT_DUPLICATE',
+        message: 'Duplicate data was found in the whitelist import',
+        data: {
+          results: inputDuplicateResults,
+        },
+      });
+    }
+
+    if (validRows.length === 0) {
+      return this.buildImportSummary(results);
+    }
+
+    const emails = validRows.map((row) => row.email);
+    const studentNumbers = validRows.map((row) => row.studentNumber);
+
+    const [existingWhitelists, existingUsers] = await Promise.all([
+      this.prisma.whitelistedUser.findMany({
+        where: {
+          OR: [
+            {
+              email: {
+                in: emails,
+                mode: 'insensitive',
+              },
+            },
+            {
+              studentNumber: {
+                in: studentNumbers,
+              },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          email: true,
+          studentNumber: true,
+          invitationStatus: true,
+          userId: true,
+        },
+      }),
+      this.prisma.user.findMany({
+        where: {
+          OR: [
+            {
+              email: {
+                in: emails,
+                mode: 'insensitive',
+              },
+            },
+            {
+              studentNumber: {
+                in: studentNumbers,
+              },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          email: true,
+          studentNumber: true,
+        },
+      }),
+    ]);
+
+    const whitelistByEmail = new Map(
+      existingWhitelists.map((record) => [record.email.toLowerCase(), record]),
+    );
+
+    const whitelistByStudentNumber = new Map(
+      existingWhitelists.map((record) => [record.studentNumber, record]),
+    );
+
+    const userByEmail = new Map(
+      existingUsers.map((record) => [record.email.toLowerCase(), record]),
+    );
+
+    const userByStudentNumber = new Map(
+      existingUsers.map((record) => [record.studentNumber, record]),
+    );
+
+    const actions: ImportAction[] = [];
+    const databaseDuplicateResults: ImportRowResult[] = [];
+    const targetedWhitelistIds = new Set<string>();
+
+    const updatableStatuses = new Set<WhitelistInvitationStatus>([
+      WhitelistInvitationStatus.PENDING,
+      WhitelistInvitationStatus.FAILED,
+      WhitelistInvitationStatus.EXPIRED,
+    ]);
+
+    for (const row of validRows) {
+      const resultIndex = row.rowIndex - 1;
+
+      const whitelistByMatchingEmail = whitelistByEmail.get(row.email);
+
+      const whitelistByMatchingStudentNumber = whitelistByStudentNumber.get(
+        row.studentNumber,
+      );
+
+      const existingUserByEmail = userByEmail.get(row.email);
+
+      const existingUserByStudentNumber = userByStudentNumber.get(
+        row.studentNumber,
+      );
+
+      const hasExistingUser =
+        existingUserByEmail !== undefined ||
+        existingUserByStudentNumber !== undefined;
+
+      const hasExistingWhitelist =
+        whitelistByMatchingEmail !== undefined ||
+        whitelistByMatchingStudentNumber !== undefined;
+
+      const conflictingWhitelistMatches =
+        whitelistByMatchingEmail !== undefined &&
+        whitelistByMatchingStudentNumber !== undefined &&
+        whitelistByMatchingEmail.id !== whitelistByMatchingStudentNumber.id;
+
+      if (dto.onDuplicate === WhitelistImportDuplicatePolicy.FAIL) {
+        if (hasExistingUser || hasExistingWhitelist) {
+          const result: ImportRowResult = {
+            rowIndex: row.rowIndex,
+            email: row.email,
+            studentNumber: row.studentNumber,
+            status: 'FAILED',
+            whitelistUserId: null,
+            errorMessage: 'Email or student number already exists',
+          };
+
+          results[resultIndex] = result;
+          databaseDuplicateResults.push(result);
+          continue;
+        }
+
+        results[resultIndex] = {
+          rowIndex: row.rowIndex,
+          email: row.email,
+          studentNumber: row.studentNumber,
+          status: 'CREATED',
+          whitelistUserId: null,
+          errorMessage: null,
+        };
+
+        actions.push({
+          type: 'CREATE',
+          row,
+          resultIndex,
+        });
+
+        continue;
+      }
+
+      if (dto.onDuplicate === WhitelistImportDuplicatePolicy.SKIP) {
+        if (hasExistingUser || hasExistingWhitelist) {
+          let existingWhitelistId: string | null = null;
+
+          if (!conflictingWhitelistMatches) {
+            existingWhitelistId =
+              whitelistByMatchingEmail?.id ??
+              whitelistByMatchingStudentNumber?.id ??
+              null;
+          }
+
+          results[resultIndex] = {
+            rowIndex: row.rowIndex,
+            email: row.email,
+            studentNumber: row.studentNumber,
+            status: 'SKIPPED',
+            whitelistUserId: existingWhitelistId,
+            errorMessage: hasExistingUser
+              ? 'Email or student number already belongs to an existing user'
+              : 'Email or student number already exists in the whitelist',
+          };
+
+          continue;
+        }
+
+        results[resultIndex] = {
+          rowIndex: row.rowIndex,
+          email: row.email,
+          studentNumber: row.studentNumber,
+          status: 'CREATED',
+          whitelistUserId: null,
+          errorMessage: null,
+        };
+
+        actions.push({
+          type: 'CREATE',
+          row,
+          resultIndex,
+        });
+
+        continue;
+      }
+
+      if (hasExistingUser) {
+        results[resultIndex] = {
+          rowIndex: row.rowIndex,
+          email: row.email,
+          studentNumber: row.studentNumber,
+          status: 'FAILED',
+          whitelistUserId: null,
+          errorMessage:
+            'Email or student number already belongs to an existing user',
+        };
+
+        continue;
+      }
+
+      if (conflictingWhitelistMatches) {
+        results[resultIndex] = {
+          rowIndex: row.rowIndex,
+          email: row.email,
+          studentNumber: row.studentNumber,
+          status: 'FAILED',
+          whitelistUserId: null,
+          errorMessage:
+            'Email and student number match different whitelist users',
+        };
+
+        continue;
+      }
+
+      const matchedWhitelist =
+        whitelistByMatchingEmail ?? whitelistByMatchingStudentNumber;
+
+      if (!matchedWhitelist) {
+        results[resultIndex] = {
+          rowIndex: row.rowIndex,
+          email: row.email,
+          studentNumber: row.studentNumber,
+          status: 'CREATED',
+          whitelistUserId: null,
+          errorMessage: null,
+        };
+
+        actions.push({
+          type: 'CREATE',
+          row,
+          resultIndex,
+        });
+
+        continue;
+      }
+
+      if (targetedWhitelistIds.has(matchedWhitelist.id)) {
+        results[resultIndex] = {
+          rowIndex: row.rowIndex,
+          email: row.email,
+          studentNumber: row.studentNumber,
+          status: 'FAILED',
+          whitelistUserId: null,
+          errorMessage: 'Multiple rows target the same whitelist user',
+        };
+
+        continue;
+      }
+
+      if (
+        matchedWhitelist.userId !== null ||
+        !updatableStatuses.has(matchedWhitelist.invitationStatus)
+      ) {
+        results[resultIndex] = {
+          rowIndex: row.rowIndex,
+          email: row.email,
+          studentNumber: row.studentNumber,
+          status: 'FAILED',
+          whitelistUserId: null,
+          errorMessage:
+            'This whitelist user cannot be updated in the current status',
+        };
+
+        continue;
+      }
+
+      targetedWhitelistIds.add(matchedWhitelist.id);
+
+      results[resultIndex] = {
+        rowIndex: row.rowIndex,
+        email: row.email,
+        studentNumber: row.studentNumber,
+        status: 'UPDATED',
+        whitelistUserId: matchedWhitelist.id,
+        errorMessage: null,
+      };
+
+      actions.push({
+        type: 'UPDATE',
+        row,
+        resultIndex,
+        whitelistUserId: matchedWhitelist.id,
+      });
+    }
+
+    if (
+      dto.onDuplicate === WhitelistImportDuplicatePolicy.FAIL &&
+      databaseDuplicateResults.length > 0
+    ) {
+      throw new ConflictException({
+        errorCode: 'W409_IMPORT_DUPLICATE',
+        message: 'Duplicate data was found in the whitelist import',
+        data: {
+          results: databaseDuplicateResults,
+        },
+      });
+    }
+
+    if (actions.length === 0) {
+      return this.buildImportSummary(results);
+    }
+
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          for (const action of actions) {
+            if (action.type === 'CREATE') {
+              const created = await tx.whitelistedUser.create({
+                data: {
+                  name: action.row.name,
+                  studentNumber: action.row.studentNumber,
+                  email: action.row.email,
+                },
+                select: {
+                  id: true,
+                },
+              });
+
+              results[action.resultIndex].whitelistUserId = created.id;
+
+              continue;
+            }
+
+            const updated = await tx.whitelistedUser.update({
+              where: {
+                id: action.whitelistUserId,
+              },
+              data: {
+                name: action.row.name,
+                studentNumber: action.row.studentNumber,
+                email: action.row.email,
+              },
+              select: {
+                id: true,
+              },
+            });
+
+            results[action.resultIndex].whitelistUserId = updated.id;
+          }
+
+          const summary = this.buildImportSummary(results);
+
+          await tx.adminActionLog.create({
+            data: {
+              adminId,
+              actionType: AdminActionType.WHITELIST,
+              action: AdminAction.IMPORT_WHITELIST_USERS,
+              targetId: null,
+              metadata: {
+                onDuplicate: dto.onDuplicate,
+                totalCount: summary.totalCount,
+                successCount: summary.successCount,
+                skippedCount: summary.skippedCount,
+                failedCount: summary.failedCount,
+              },
+            },
+          });
+        },
+        {
+          timeout: 15000,
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException({
+          errorCode: 'W409_IMPORT_DUPLICATE',
+          message:
+            'Duplicate data was detected while processing the whitelist import',
+          data: null,
+        });
+      }
+
+      throw error;
+    }
+
+    return this.buildImportSummary(results);
+  }
+
   async create(
     createWhitelistUserDto: CreateWhitelistUserDto,
     adminId: string,
@@ -395,5 +908,156 @@ export class WhitelistUsersService {
 
       throw error;
     }
+  }
+
+  private validateAndNormalizeImportRow(
+    raw: unknown,
+    rowIndex: number,
+  ): ImportRowValidation {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      return {
+        row: null,
+        email: '',
+        studentNumber: '',
+        errorMessage: 'Each user must be an object',
+      };
+    }
+
+    const record = raw as Record<string, unknown>;
+
+    const name = typeof record.name === 'string' ? record.name.trim() : '';
+
+    const studentNumber =
+      typeof record.studentNumber === 'string'
+        ? record.studentNumber.trim()
+        : '';
+
+    const email =
+      typeof record.email === 'string' ? record.email.trim().toLowerCase() : '';
+
+    const allowedFields = new Set(['name', 'studentNumber', 'email']);
+
+    const unknownFields = Object.keys(record).filter(
+      (key) => !allowedFields.has(key),
+    );
+
+    if (unknownFields.length > 0) {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: `Unknown field(s): ${unknownFields.join(', ')}`,
+      };
+    }
+
+    if (!name) {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: 'Name is required',
+      };
+    }
+
+    if (name.length > 36) {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: 'Name must not exceed 36 characters',
+      };
+    }
+
+    if (!studentNumber) {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: 'Student number is required',
+      };
+    }
+
+    if (studentNumber.length > 36) {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: 'Student number must not exceed 36 characters',
+      };
+    }
+
+    if (!email) {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: 'Email is required',
+      };
+    }
+
+    if (email.length > 255) {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: 'Email must not exceed 255 characters',
+      };
+    }
+
+    if (!isEmail(email)) {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: 'Invalid email format',
+      };
+    }
+
+    const emailDomain = email.split('@')[1];
+
+    if (emailDomain !== 'connect.ust.hk') {
+      return {
+        row: null,
+        email,
+        studentNumber,
+        errorMessage: 'Email must use the @connect.ust.hk domain',
+      };
+    }
+
+    return {
+      row: {
+        rowIndex,
+        name,
+        studentNumber,
+        email,
+      },
+      email,
+      studentNumber,
+      errorMessage: null,
+    };
+  }
+
+  private buildImportSummary(
+    results: ImportRowResult[],
+  ): ImportWhitelistUsersResponse {
+    const successCount = results.filter(
+      (result) => result.status === 'CREATED' || result.status === 'UPDATED',
+    ).length;
+
+    const skippedCount = results.filter(
+      (result) => result.status === 'SKIPPED',
+    ).length;
+
+    const failedCount = results.filter(
+      (result) => result.status === 'FAILED',
+    ).length;
+
+    return {
+      totalCount: results.length,
+      successCount,
+      skippedCount,
+      failedCount,
+      results,
+    };
   }
 }
