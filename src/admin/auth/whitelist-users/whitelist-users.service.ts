@@ -1,4 +1,8 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AdminAction, AdminActionType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateWhitelistUserDto } from './dto/create-whitelist-user.dto';
@@ -89,6 +93,90 @@ export class WhitelistUsersService {
       limit,
       totalCount,
       totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+    };
+  }
+
+  async findOne(whitelistUserId: string) {
+    const whitelistUser = await this.prisma.whitelistedUser.findUnique({
+      where: {
+        id: whitelistUserId,
+      },
+      select: {
+        id: true,
+        name: true,
+        studentNumber: true,
+        email: true,
+        invitationStatus: true,
+        userId: true,
+        invitedAt: true,
+        acceptedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        inviter: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        invitations: {
+          orderBy: [
+            {
+              sentAt: 'desc',
+            },
+            {
+              createdAt: 'desc',
+            },
+          ],
+          take: 1,
+          select: {
+            id: true,
+            linkStatus: true,
+            sentAt: true,
+            expiresAt: true,
+            acceptedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!whitelistUser) {
+      throw new NotFoundException({
+        errorCode: 'W404',
+        message: 'Whitelist user not found',
+        data: {
+          whitelistUserId,
+        },
+      });
+    }
+
+    const latestInvitation = whitelistUser.invitations[0] ?? null;
+
+    return {
+      whitelistUserId: whitelistUser.id,
+      name: whitelistUser.name,
+      studentNumber: whitelistUser.studentNumber,
+      email: whitelistUser.email,
+      invitationStatus: whitelistUser.invitationStatus,
+      userId: whitelistUser.userId,
+      invitedBy: whitelistUser.inviter
+        ? {
+            userId: whitelistUser.inviter.id,
+            name: whitelistUser.inviter.name,
+          }
+        : null,
+      invitedAt: whitelistUser.invitedAt,
+      acceptedAt: whitelistUser.acceptedAt,
+      createdAt: whitelistUser.createdAt,
+      updatedAt: whitelistUser.updatedAt,
+      latestInvitation: latestInvitation
+        ? {
+            invitationId: latestInvitation.id,
+            linkStatus: latestInvitation.linkStatus,
+            sentAt: latestInvitation.sentAt,
+            expiresAt: latestInvitation.expiresAt,
+            acceptedAt: latestInvitation.acceptedAt,
+          }
+        : null,
     };
   }
 

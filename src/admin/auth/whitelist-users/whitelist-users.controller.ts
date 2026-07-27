@@ -8,6 +8,8 @@ import {
   Query,
   Req,
   UseGuards,
+  Param,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { AdminGuard } from '../../../auth/admin.guard';
@@ -30,6 +32,14 @@ export class WhitelistUsersController {
   @Get()
   async findAll(@Query() query: GetWhitelistUsersQueryDto) {
     return this.whitelistUsersService.findAll(query);
+  }
+
+  @Get(':whitelistUserId')
+  async findOne(
+    @Param('whitelistUserId', new ParseUUIDPipe({ version: '4' }))
+    whitelistUserId: string,
+  ) {
+    return this.whitelistUsersService.findOne(whitelistUserId);
   }
 
   @Post()
