@@ -53,3 +53,26 @@ export interface SendInvitationsResponse {
   failedCount: number;
   results: SendInvitationResult[];
 }
+
+export type InvitationResendStatus = 'RESENT' | 'SKIPPED' | 'FAILED';
+
+export interface ResendInvitationResult {
+  whitelistUserId: string;
+  email: string | null;
+  invitationId: string | null;
+  sendStatus: InvitationResendStatus;
+  invitationStatus: WhitelistInvitationStatus | null;
+  linkStatus: InvitationLinkStatus | null;
+  sentAt: Date | null;
+  expiresAt: Date | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface ResendInvitationsResponse {
+  requestedCount: number;
+  resentCount: number;
+  skippedCount: number;
+  failedCount: number;
+  results: ResendInvitationResult[];
+}
