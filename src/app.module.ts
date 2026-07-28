@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { WhitelistUsersModule } from './admin/auth/whitelist-users/whitelist-users.module';
+import { InvitationsModule } from './admin/auth/invitations/invitations.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { WhitelistUsersModule } from './admin/auth/whitelist-users/whitelist-use
     UsersModule,
     AuthModule,
     WhitelistUsersModule,
+    InvitationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
