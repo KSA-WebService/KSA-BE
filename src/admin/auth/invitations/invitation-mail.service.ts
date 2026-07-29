@@ -38,8 +38,24 @@ export class InvitationMailService {
 
     const providerMessageId = `mock-${randomUUID()}`;
 
-    // raw token이 포함된 invitationUrl은 절대 로그에 출력하지 않는다.
     this.logger.log(`[MOCK] Invitation email accepted for ${params.email}`);
+
+    /*
+     * 로컬 Mock 테스트에서 명시적으로 허용한 경우에만
+     * 원본 토큰이 포함된 초대 URL을 출력한다.
+     *
+     * 운영 환경에서는 절대 출력하지 않는다.
+     */
+    const shouldLogInvitationUrl =
+      process.env.NODE_ENV !== 'production' &&
+      (process.env.INVITATION_MOCK_LOG_URL ?? 'false').trim().toLowerCase() ===
+        'true';
+
+    if (shouldLogInvitationUrl) {
+      this.logger.warn(
+        `[LOCAL MOCK ONLY] Invitation URL for ${params.email}: ${params.invitationUrl}`,
+      );
+    }
 
     return Promise.resolve({
       providerMessageId,
