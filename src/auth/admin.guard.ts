@@ -5,7 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { UserRole, UserStatus } from '@prisma/client';
 import { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -37,13 +37,21 @@ export class AdminGuard implements CanActivate {
       },
       select: {
         role: true,
+        status: true,
+        deletedAt: true,
       },
     });
 
-    if (!user || user.role !== UserRole.ADMIN) {
+    const hasAdminAccess =
+      user !== null &&
+      user.role === UserRole.ADMIN &&
+      user.status === UserStatus.ACTIVE &&
+      user.deletedAt === null;
+
+    if (!hasAdminAccess) {
       throw new ForbiddenException({
         errorCode: 'A403',
-        message: 'Admin access is required',
+        message: 'Active admin access is required',
       });
     }
 
