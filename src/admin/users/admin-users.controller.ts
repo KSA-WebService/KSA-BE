@@ -1,4 +1,11 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { AdminGuard } from '../../auth/admin.guard';
 import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
 import { AdminUsersService } from './admin-users.service';
@@ -12,5 +19,13 @@ export class AdminUsersController {
   @Get()
   async findAll(@Query() query: GetAdminUsersQueryDto) {
     return this.adminUsersService.findAll(query);
+  }
+
+  @Get(':userId')
+  async findOne(
+    @Param('userId', new ParseUUIDPipe({ version: '4' }))
+    userId: string,
+  ) {
+    return this.adminUsersService.findOne(userId);
   }
 }

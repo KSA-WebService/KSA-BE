@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GetAdminUsersQueryDto } from './dto/get-admin-users-query.dto';
@@ -95,6 +95,52 @@ export class AdminUsersService {
       limit,
       totalCount,
       totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+    };
+  }
+
+  async findOne(userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        studentNumber: true,
+        email: true,
+        role: true,
+        tokenBalance: true,
+        status: true,
+        agreedPrivacy: true,
+        agreedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException({
+        errorCode: 'U404_USER_NOT_FOUND',
+        message: 'User not found',
+        data: {
+          userId,
+        },
+      });
+    }
+
+    return {
+      userId: user.id,
+      name: user.name,
+      studentNumber: user.studentNumber,
+      email: user.email,
+      role: user.role,
+      tokenBalance: user.tokenBalance,
+      status: user.status,
+      agreedPrivacy: user.agreedPrivacy,
+      agreedAt: user.agreedAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     };
   }
 }
