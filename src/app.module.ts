@@ -8,6 +8,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { WhitelistUsersModule } from './admin/auth/whitelist-users/whitelist-users.module';
 import { InvitationsModule } from './admin/auth/invitations/invitations.module';
+import { AdminProfileModule } from './admin/profile/admin-profile.module';
 import { AdminUsersModule } from './admin/users/admin-users.module';
 
 @Module({
@@ -22,6 +23,7 @@ import { AdminUsersModule } from './admin/users/admin-users.module';
     WhitelistUsersModule,
     InvitationsModule,
     AdminUsersModule,
+    AdminProfileModule,
   ],
   controllers: [AppController],
   providers: [AppService],
