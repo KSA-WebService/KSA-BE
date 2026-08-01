@@ -10,6 +10,7 @@ import { WhitelistUsersModule } from './admin/auth/whitelist-users/whitelist-use
 import { InvitationsModule } from './admin/auth/invitations/invitations.module';
 import { AdminProfileModule } from './admin/profile/admin-profile.module';
 import { AdminUsersModule } from './admin/users/admin-users.module';
+import { TokenEventsModule } from './admin/token-events/token-events.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AdminUsersModule } from './admin/users/admin-users.module';
     InvitationsModule,
     AdminUsersModule,
     AdminProfileModule,
+    TokenEventsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
