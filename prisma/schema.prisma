@@ -93,6 +93,14 @@ enum OrderStatus {
   @@map("order_status")
 }
 
+enum TokenTransactionType {
+  EVENT_GRANT      @map("event_grant")
+  EVENT_ADJUSTMENT @map("event_adjustment")
+  ORDER_PAYMENT    @map("order_payment")
+
+  @@map("token_transaction_type")
+}
+
 enum AdminActionType {
   USER       @map("user")
   WHITELIST  @map("whitelist")
@@ -124,7 +132,9 @@ enum AdminAction {
   DELETE_PRODUCT                    @map("delete_product")
   UPDATE_ORDER_STATUS               @map("update_order_status")
   CREATE_TOKEN_EVENT                @map("create_token_event")
+  UPDATE_TOKEN_EVENT                @map("update_token_event")
   GRANT_TOKEN                       @map("grant_token")
+  UPDATE_TOKEN_GRANT                @map("update_token_grant")
   DELETE_TOKEN_EVENT                @map("delete_token_event")
   UPDATE_MEMO                       @map("update_memo")
 
@@ -162,6 +172,8 @@ model User {
 
   tokenLogsAsAdmin   TokenLog[]   @relation("TokenLogAdmin")
   tokenLogsAsUser    TokenLog[]   @relation("TokenLogUser")
+  tokenGrantsAsAdmin TokenGrant[] @relation("TokenGrantAdmin")
+  tokenGrantsAsUser  TokenGrant[] @relation("TokenGrantUser")
   createdTokenEvents TokenEvent[] @relation("TokenEventCreator")
 
   updatedAdminMemos AdminMemo[] @relation("AdminMemoUpdater")
@@ -275,6 +287,7 @@ model Order {
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   statusLogs OrderStatusLog[]
+  tokenLog   TokenLog?
 
   @@index([userId])
   @@index([productId])
@@ -391,33 +404,67 @@ model TokenEvent {
   createdBy String    @map("created_by") @db.Uuid
   eventName String    @map("event_name") @db.VarChar(128)
   createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
   creator User @relation("TokenEventCreator", fields: [createdBy], references: [id], onDelete: Restrict)
 
-  tokenLogs TokenLog[]
+  tokenGrants TokenGrant[]
 
   @@index([createdBy])
+  @@index([deletedAt])
   @@map("token_events")
 }
 
-model TokenLog {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
-  adminId      String   @map("admin_id") @db.Uuid
-  userId       String   @map("user_id") @db.Uuid
-  beforeValue  Int      @map("before_value")
-  afterValue   Int      @map("after_value")
-  delta        Int      @map("delta")
-  reason       String   @map("reason") @db.Text
-  createdAt    DateTime @default(now()) @map("created_at")
-  tokenEventId String   @map("token_event_id") @db.Uuid
+model TokenGrant {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  tokenEventId  String   @map("token_event_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  grantedBy     String   @map("granted_by") @db.Uuid
+  grantedAmount Int      @map("granted_amount")
+  reason        String   @map("reason") @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 
-  admin      User       @relation("TokenLogAdmin", fields: [adminId], references: [id], onDelete: Restrict)
-  user       User       @relation("TokenLogUser", fields: [userId], references: [id], onDelete: Restrict)
   tokenEvent TokenEvent @relation(fields: [tokenEventId], references: [id], onDelete: Restrict)
 
-  @@index([adminId])
+  user User @relation("TokenGrantUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  admin User @relation("TokenGrantAdmin", fields: [grantedBy], references: [id], onDelete: Restrict)
+
+  tokenLogs TokenLog[]
+
+  @@unique([tokenEventId, userId])
   @@index([userId])
-  @@index([tokenEventId])
+  @@index([grantedBy])
+  @@index([tokenEventId, grantedAmount])
+  @@map("token_grants")
+}
+
+model TokenLog {
+  id              String               @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  transactionType TokenTransactionType @map("transaction_type")
+  adminId         String?              @map("admin_id") @db.Uuid
+  userId          String               @map("user_id") @db.Uuid
+  tokenGrantId    String?              @map("token_grant_id") @db.Uuid
+  orderId         String?              @unique @map("order_id") @db.Uuid
+  balanceBefore   Int                  @map("balance_before")
+  balanceAfter    Int                  @map("balance_after")
+  delta           Int                  @map("delta")
+  reason          String               @map("reason") @db.Text
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  admin User? @relation("TokenLogAdmin", fields: [adminId], references: [id], onDelete: Restrict)
+
+  user User @relation("TokenLogUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  tokenGrant TokenGrant? @relation(fields: [tokenGrantId], references: [id], onDelete: Restrict)
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([adminId])
+  @@index([userId, createdAt])
+  @@index([tokenGrantId])
+  @@index([transactionType])
   @@map("token_logs")
 }
