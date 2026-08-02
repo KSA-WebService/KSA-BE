@@ -1,8 +1,17 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
-import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
 import { AdminGuard } from '../../auth/admin.guard';
+import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
 import { CreateTokenEventDto } from './dto/create-token-event.dto';
+import { GetTokenEventsQueryDto } from './dto/get-token-events-query.dto';
 import { TokenEventsService } from './token-events.service';
 
 type AuthenticatedRequest = Request & {
@@ -22,5 +31,10 @@ export class TokenEventsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.tokenEventsService.create(dto, request.user.id);
+  }
+
+  @Get()
+  async findAll(@Query() query: GetTokenEventsQueryDto) {
+    return this.tokenEventsService.findAll(query);
   }
 }
