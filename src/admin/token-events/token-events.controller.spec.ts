@@ -5,6 +5,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { CreateTokenEventDto } from './dto/create-token-event.dto';
 import { TokenEventsController } from './token-events.controller';
 import { TokenEventsService } from './token-events.service';
+import { GetTokenEventsQueryDto } from './dto/get-token-events-query.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -17,6 +18,7 @@ describe('TokenEventsController', () => {
 
   const tokenEventsServiceMock = {
     create: jest.fn(),
+    findAll: jest.fn(),
   };
 
   const supabaseAuthGuardMock = {
@@ -86,5 +88,28 @@ describe('TokenEventsController', () => {
 
     expect(tokenEventsServiceMock.create).toHaveBeenCalledTimes(1);
     expect(tokenEventsServiceMock.create).toHaveBeenCalledWith(dto, adminId);
+  });
+
+  it('should pass the query DTO to the service', async () => {
+    const query: GetTokenEventsQueryDto = {
+      page: 1,
+      limit: 20,
+      keyword: 'Welcome',
+    };
+
+    const result = {
+      items: [],
+      page: 1,
+      limit: 20,
+      totalCount: 0,
+      totalPages: 0,
+    };
+
+    tokenEventsServiceMock.findAll.mockResolvedValue(result);
+
+    await expect(controller.findAll(query)).resolves.toEqual(result);
+
+    expect(tokenEventsServiceMock.findAll).toHaveBeenCalledTimes(1);
+    expect(tokenEventsServiceMock.findAll).toHaveBeenCalledWith(query);
   });
 });
