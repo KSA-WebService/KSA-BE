@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Request } from 'express';
 import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
@@ -6,6 +7,10 @@ import { CreateTokenEventDto } from './dto/create-token-event.dto';
 import { TokenEventsController } from './token-events.controller';
 import { TokenEventsService } from './token-events.service';
 import { GetTokenEventsQueryDto } from './dto/get-token-events-query.dto';
+import {
+  GetTokenEventDetailQueryDto,
+  TokenGrantStatusFilter,
+} from './dto/get-token-event-detail-query.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -19,6 +24,7 @@ describe('TokenEventsController', () => {
   const tokenEventsServiceMock = {
     create: jest.fn(),
     findAll: jest.fn(),
+    findOne: jest.fn(),
   };
 
   const supabaseAuthGuardMock = {
@@ -111,5 +117,46 @@ describe('TokenEventsController', () => {
 
     expect(tokenEventsServiceMock.findAll).toHaveBeenCalledTimes(1);
     expect(tokenEventsServiceMock.findAll).toHaveBeenCalledWith(query);
+  });
+
+  it('should pass the token event ID and query DTO to the service', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+
+    const query: GetTokenEventDetailQueryDto = {
+      page: 1,
+      limit: 20,
+      keyword: 'Sulynn',
+      grantStatus: TokenGrantStatusFilter.ALL,
+    };
+
+    const result = {
+      tokenEventId,
+      eventName: 'KSA Welcome Event',
+      createdBy: {
+        userId: 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53',
+        name: 'Sulynn Kim',
+      },
+      createdAt: new Date('2026-08-02T06:30:00.000Z'),
+      eventUpdatedAt: new Date('2026-08-02T06:30:00.000Z'),
+      lastGrantUpdatedAt: null,
+      grantedMemberCount: 0,
+      items: [],
+      page: 1,
+      limit: 20,
+      totalCount: 0,
+      totalPages: 0,
+    };
+
+    tokenEventsServiceMock.findOne.mockResolvedValue(result);
+
+    await expect(controller.findOne(tokenEventId, query)).resolves.toEqual(
+      result,
+    );
+
+    expect(tokenEventsServiceMock.findOne).toHaveBeenCalledTimes(1);
+    expect(tokenEventsServiceMock.findOne).toHaveBeenCalledWith(
+      tokenEventId,
+      query,
+    );
   });
 });
