@@ -735,6 +735,77 @@ export class TokenEventsService {
     });
   }
 
+  async deleteTokenEvent(tokenEventId: string, adminId: string) {
+    return this.runSerializableTransaction(async (tx) => {
+      const tokenEvent = await tx.tokenEvent.findFirst({
+        where: {
+          id: tokenEventId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          eventName: true,
+        },
+      });
+
+      if (!tokenEvent) {
+        throw new NotFoundException({
+          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+          message: 'Token event not found',
+        });
+      }
+
+      const grantedMemberCount = await tx.tokenGrant.count({
+        where: {
+          tokenEventId,
+          grantedAmount: {
+            gt: 0,
+          },
+        },
+      });
+
+      const deletedAt = new Date();
+
+      const updateResult = await tx.tokenEvent.updateMany({
+        where: {
+          id: tokenEventId,
+          deletedAt: null,
+        },
+        data: {
+          deletedAt,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        throw new NotFoundException({
+          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+          message: 'Token event not found',
+        });
+      }
+
+      const metadata: Prisma.InputJsonObject = {
+        eventName: tokenEvent.eventName,
+        grantedMemberCount,
+        deletedAt: deletedAt.toISOString(),
+      };
+
+      await tx.adminActionLog.create({
+        data: {
+          adminId,
+          actionType: AdminActionType.TOKEN,
+          action: AdminAction.DELETE_TOKEN_EVENT,
+          targetId: tokenEventId,
+          metadata,
+        },
+      });
+
+      return {
+        deletedTokenEventId: tokenEvent.id,
+        deletedAt,
+      };
+    });
+  }
+
   private async runSerializableTransaction<T>(
     operation: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {

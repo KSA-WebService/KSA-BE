@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -69,5 +70,17 @@ export class TokenEventsController {
     @Query() query: GetTokenEventDetailQueryDto,
   ) {
     return this.tokenEventsService.findOne(tokenEventId, query);
+  }
+
+  @Delete(':tokenEventId')
+  async deleteTokenEvent(
+    @Param('tokenEventId', new ParseUUIDPipe({ version: '4' }))
+    tokenEventId: string,
+    @Req() request: { user: { id: string } },
+  ) {
+    return this.tokenEventsService.deleteTokenEvent(
+      tokenEventId,
+      request.user.id,
+    );
   }
 }

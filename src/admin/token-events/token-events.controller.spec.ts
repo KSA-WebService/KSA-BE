@@ -27,6 +27,7 @@ describe('TokenEventsController', () => {
     findAll: jest.fn(),
     findOne: jest.fn(),
     saveGrants: jest.fn(),
+    deleteTokenEvent: jest.fn(),
   };
 
   const supabaseAuthGuardMock = {
@@ -204,5 +205,37 @@ describe('TokenEventsController', () => {
     );
 
     expect(result).toEqual(expected);
+  });
+
+  it('should pass the token event ID and admin ID to the deletion service', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+    const deletedAt = new Date('2026-08-03T13:00:00.000Z');
+
+    const expected = {
+      deletedTokenEventId: tokenEventId,
+      deletedAt,
+    };
+
+    tokenEventsServiceMock.deleteTokenEvent.mockResolvedValue(expected);
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    } as AuthenticatedRequest;
+
+    await expect(
+      controller.deleteTokenEvent(tokenEventId, request),
+    ).resolves.toEqual(expected);
+
+    expect(tokenEventsServiceMock.deleteTokenEvent).toHaveBeenCalledTimes(1);
+
+    expect(tokenEventsServiceMock.deleteTokenEvent).toHaveBeenCalledWith(
+      tokenEventId,
+      adminId,
+    );
   });
 });
