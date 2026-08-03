@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { GetMyTokenLogsQueryDto } from './dto/get-my-token-logs-query.dto';
 
 @Injectable()
 export class UsersService {
@@ -43,6 +44,119 @@ export class UsersService {
       status: user.status,
       agreedPrivacy: user.agreedPrivacy,
       agreedAt: user.agreedAt,
+    };
+  }
+
+  async findMyTokenLogs(userId: string, query: GetMyTokenLogsQueryDto) {
+    const { page, limit } = query;
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        tokenBalance: true,
+      },
+    });
+
+    if (!user) {
+      throw new ForbiddenException({
+        errorCode: 'A403',
+        message: 'Active user access is required',
+      });
+    }
+
+    const [tokenLogs, totalCount] = await Promise.all([
+      this.prisma.tokenLog.findMany({
+        where: {
+          userId,
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [
+          {
+            createdAt: 'desc',
+          },
+          {
+            id: 'desc',
+          },
+        ],
+        select: {
+          id: true,
+          transactionType: true,
+          delta: true,
+          reason: true,
+          balanceBefore: true,
+          balanceAfter: true,
+          createdAt: true,
+          tokenGrant: {
+            select: {
+              reason: true,
+              tokenEvent: {
+                select: {
+                  id: true,
+                  eventName: true,
+                },
+              },
+            },
+          },
+          order: {
+            select: {
+              id: true,
+              productId: true,
+              quantity: true,
+              unitPrice: true,
+              totalAmount: true,
+              product: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.tokenLog.count({
+        where: {
+          userId,
+        },
+      }),
+    ]);
+
+    return {
+      currentTokenBalance: user.tokenBalance,
+      items: tokenLogs.map((tokenLog) => ({
+        tokenLogId: tokenLog.id,
+        transactionType: tokenLog.transactionType,
+        delta: tokenLog.delta,
+        reason: tokenLog.tokenGrant?.reason ?? tokenLog.reason,
+        balanceBefore: tokenLog.balanceBefore,
+        balanceAfter: tokenLog.balanceAfter,
+        createdAt: tokenLog.createdAt,
+        tokenEvent: tokenLog.tokenGrant
+          ? {
+              tokenEventId: tokenLog.tokenGrant.tokenEvent.id,
+              eventName: tokenLog.tokenGrant.tokenEvent.eventName,
+            }
+          : null,
+        order: tokenLog.order
+          ? {
+              orderId: tokenLog.order.id,
+              productId: tokenLog.order.productId,
+              productName: tokenLog.order.product.name,
+              quantity: tokenLog.order.quantity,
+              unitPrice: tokenLog.order.unitPrice,
+              totalAmount: tokenLog.order.totalAmount,
+            }
+          : null,
+      })),
+      page,
+      limit,
+      totalCount,
+      totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
     };
   }
 }
