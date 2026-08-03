@@ -72,15 +72,15 @@ enum FileStatus {
   DELETED   @map("deleted")
   PENDING   @map("pending")
   COMPLETED @map("completed")
-  FAILED    @map("failed")
 
   @@map("file_status")
 }
 
 enum FilePurpose {
-  POST_IMAGE         @map("post image")
-  PRODUCT_IMAGE      @map("product image")
-  GENERAL_ATTACHMENT @map("general attachment")
+  POST_IMAGE    @map("post_image")
+  PRODUCT_IMAGE @map("product_image")
+  CLUB_IMAGE    @map("club_image")
+  GENERAL_IMAGE @map("general_image")
 
   @@map("file_purpose")
 }
@@ -110,6 +110,7 @@ enum AdminActionType {
   PRODUCT    @map("product")
   ORDER      @map("order")
   TOKEN      @map("token")
+  FILE       @map("file")
   MEMO       @map("memo")
 
   @@map("admin_action_type")
@@ -139,6 +140,8 @@ enum AdminAction {
   SAVE_TOKEN_GRANTS                 @map("save_token_grants")
   RESET_TOKEN_BALANCES              @map("reset_token_balances")
   DELETE_TOKEN_EVENT                @map("delete_token_event")
+  UPLOAD_FILE                       @map("upload_file")
+  DELETE_FILE                       @map("delete_file")
   UPDATE_MEMO                       @map("update_memo")
 
   @@map("admin_action")
@@ -232,7 +235,7 @@ model File {
   id           String      @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
   uploadedBy   String?     @map("uploaded_by") @db.Uuid
   originalName String      @map("original_name") @db.VarChar(255)
-  storagePath  String      @map("storage_path") @db.Text
+  storagePath  String      @unique @map("storage_path") @db.Text
   fileUrl      String      @map("file_url") @db.Text
   contentType  String      @map("content_type") @db.VarChar(128)
   fileSize     Int         @map("file_size")
@@ -245,6 +248,7 @@ model File {
 
   products      Product[]
   contentImages ContentImage[]
+  clubImages    Club[]
 
   @@index([uploadedBy])
   @@index([status])
@@ -264,7 +268,7 @@ model Product {
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at")
   deletedAt         DateTime?         @map("deleted_at")
 
-  imageFile File? @relation(fields: [imageFileId], references: [id], onDelete: SetNull)
+  imageFile File? @relation(fields: [imageFileId], references: [id], onDelete: Restrict)
 
   orders Order[]
 
@@ -362,13 +366,16 @@ model Club {
   description  String?   @map("description") @db.Text
   instagramUrl String?   @map("instagram_url") @db.Text
   contactUrl   String?   @map("contact_url") @db.Text
-  imageUrl     String?   @map("image_url") @db.Text
+  imageFileId  String?   @map("image_file_id") @db.Uuid
   isActive     Boolean   @default(true) @map("is_active")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime? @map("updated_at")
   leader       String?   @map("leader") @db.VarChar(128)
   viceLeader   String?   @map("vice_leader") @db.VarChar(128)
 
+  imageFile File? @relation(fields: [imageFileId], references: [id], onDelete: Restrict)
+
+  @@index([imageFileId])
   @@index([isActive])
   @@map("clubs")
 }
