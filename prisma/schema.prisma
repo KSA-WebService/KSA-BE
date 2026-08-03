@@ -97,6 +97,7 @@ enum TokenTransactionType {
   EVENT_GRANT      @map("event_grant")
   EVENT_ADJUSTMENT @map("event_adjustment")
   ORDER_PAYMENT    @map("order_payment")
+  RESET            @map("reset")
 
   @@map("token_transaction_type")
 }
@@ -136,6 +137,7 @@ enum AdminAction {
   GRANT_TOKEN                       @map("grant_token")
   UPDATE_TOKEN_GRANT                @map("update_token_grant")
   SAVE_TOKEN_GRANTS                 @map("save_token_grants")
+  RESET_TOKEN_BALANCES              @map("reset_token_balances")
   DELETE_TOKEN_EVENT                @map("delete_token_event")
   UPDATE_MEMO                       @map("update_memo")
 
