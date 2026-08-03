@@ -19,6 +19,7 @@ import {
 } from './dto/get-token-event-detail-query.dto';
 import { GetTokenEventsQueryDto } from './dto/get-token-events-query.dto';
 import { SaveTokenGrantsDto } from './dto/save-token-grants.dto';
+import { UpdateTokenEventDto } from './dto/update-token-event.dto';
 
 type SaveTokenGrantStatus = 'CREATED' | 'UPDATED' | 'UNCHANGED';
 
@@ -431,6 +432,80 @@ export class TokenEventsService {
         limit,
         totalCount,
         totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+      };
+    });
+  }
+
+  async updateTokenEvent(
+    tokenEventId: string,
+    dto: UpdateTokenEventDto,
+    adminId: string,
+  ) {
+    return this.runSerializableTransaction(async (tx) => {
+      const tokenEvent = await tx.tokenEvent.findFirst({
+        where: {
+          id: tokenEventId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          eventName: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!tokenEvent) {
+        throw new NotFoundException({
+          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+          message: 'Token event not found',
+        });
+      }
+
+      if (tokenEvent.eventName === dto.eventName) {
+        return {
+          tokenEventId: tokenEvent.id,
+          eventName: tokenEvent.eventName,
+          updatedAt: tokenEvent.updatedAt,
+        };
+      }
+
+      const updatedAt = new Date();
+
+      const updateResult = await tx.tokenEvent.updateMany({
+        where: {
+          id: tokenEventId,
+          deletedAt: null,
+        },
+        data: {
+          eventName: dto.eventName,
+          updatedAt,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        throw new NotFoundException({
+          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+          message: 'Token event not found',
+        });
+      }
+
+      await tx.adminActionLog.create({
+        data: {
+          adminId,
+          actionType: AdminActionType.TOKEN,
+          action: AdminAction.UPDATE_TOKEN_EVENT,
+          targetId: tokenEventId,
+          metadata: {
+            previousEventName: tokenEvent.eventName,
+            updatedEventName: dto.eventName,
+          },
+        },
+      });
+
+      return {
+        tokenEventId,
+        eventName: dto.eventName,
+        updatedAt,
       };
     });
   }

@@ -12,6 +12,7 @@ import {
   TokenGrantStatusFilter,
 } from './dto/get-token-event-detail-query.dto';
 import { SaveTokenGrantsDto } from './dto/save-token-grants.dto';
+import { UpdateTokenEventDto } from './dto/update-token-event.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -28,6 +29,7 @@ describe('TokenEventsController', () => {
     findOne: jest.fn(),
     saveGrants: jest.fn(),
     deleteTokenEvent: jest.fn(),
+    updateTokenEvent: jest.fn(),
   };
 
   const supabaseAuthGuardMock = {
@@ -235,6 +237,42 @@ describe('TokenEventsController', () => {
 
     expect(tokenEventsServiceMock.deleteTokenEvent).toHaveBeenCalledWith(
       tokenEventId,
+      adminId,
+    );
+  });
+
+  it('should pass the event ID, update data, and admin ID to the service', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+    const dto: UpdateTokenEventDto = {
+      eventName: 'KSA Welcome Event',
+    };
+
+    const expected = {
+      tokenEventId,
+      eventName: 'KSA Welcome Event',
+      updatedAt: new Date('2026-08-04T03:30:00.000Z'),
+    };
+
+    tokenEventsServiceMock.updateTokenEvent.mockResolvedValue(expected);
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    } as AuthenticatedRequest;
+
+    await expect(
+      controller.updateTokenEvent(tokenEventId, dto, request),
+    ).resolves.toEqual(expected);
+
+    expect(tokenEventsServiceMock.updateTokenEvent).toHaveBeenCalledTimes(1);
+
+    expect(tokenEventsServiceMock.updateTokenEvent).toHaveBeenCalledWith(
+      tokenEventId,
+      dto,
       adminId,
     );
   });

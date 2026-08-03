@@ -1310,4 +1310,134 @@ describe('TokenEventsService', () => {
 
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
   });
+
+  it('should update a token event name and create an admin action log', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+    const previousUpdatedAt = new Date('2026-08-03T03:00:00.000Z');
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+      eventName: 'KSA Welcom Event',
+      updatedAt: previousUpdatedAt,
+    });
+
+    tokenEventUpdateManyMock.mockResolvedValue({
+      count: 1,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'admin-action-log-id',
+    });
+
+    const result = await service.updateTokenEvent(
+      tokenEventId,
+      {
+        eventName: 'KSA Welcome Event',
+      },
+      adminId,
+    );
+
+    expect(result.tokenEventId).toBe(tokenEventId);
+    expect(result.eventName).toBe('KSA Welcome Event');
+    expect(result.updatedAt).toBeInstanceOf(Date);
+
+    const updatedAt = result.updatedAt;
+
+    expect(tokenEventFindFirstMock).toHaveBeenCalledWith({
+      where: {
+        id: tokenEventId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        eventName: true,
+        updatedAt: true,
+      },
+    });
+
+    expect(tokenEventUpdateManyMock).toHaveBeenCalledWith({
+      where: {
+        id: tokenEventId,
+        deletedAt: null,
+      },
+      data: {
+        eventName: 'KSA Welcome Event',
+        updatedAt,
+      },
+    });
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        adminId,
+        actionType: AdminActionType.TOKEN,
+        action: AdminAction.UPDATE_TOKEN_EVENT,
+        targetId: tokenEventId,
+        metadata: {
+          previousEventName: 'KSA Welcom Event',
+          updatedEventName: 'KSA Welcome Event',
+        },
+      },
+    });
+  });
+
+  it('should return the existing event without updating or logging when the name is unchanged', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+    const updatedAt = new Date('2026-08-03T03:00:00.000Z');
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+      eventName: 'KSA Welcome Event',
+      updatedAt,
+    });
+
+    await expect(
+      service.updateTokenEvent(
+        tokenEventId,
+        {
+          eventName: 'KSA Welcome Event',
+        },
+        adminId,
+      ),
+    ).resolves.toEqual({
+      tokenEventId,
+      eventName: 'KSA Welcome Event',
+      updatedAt,
+    });
+
+    expect(tokenEventUpdateManyMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should return T404 when updating an unavailable token event', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+
+    tokenEventFindFirstMock.mockResolvedValue(null);
+
+    await expect(
+      service.updateTokenEvent(
+        tokenEventId,
+        {
+          eventName: 'KSA Welcome Event',
+        },
+        'b5b922c5-9ca5-4c29-81e6-8faec8fbda53',
+      ),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: {
+        errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+        message: 'Token event not found',
+      },
+    });
+
+    expect(tokenEventUpdateManyMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
 });
