@@ -2,6 +2,8 @@ import 'reflect-metadata';
 import {
   AdminAction,
   AdminActionType,
+  Prisma,
+  TokenTransactionType,
   UserRole,
   UserStatus,
 } from '@prisma/client';
@@ -24,6 +26,9 @@ describe('TokenEventsService', () => {
   const userCountMock = jest.fn();
   const tokenGrantAggregateMock = jest.fn();
   const tokenGrantCountMock = jest.fn();
+  const userUpdateMock = jest.fn();
+  const tokenGrantFindManyMock = jest.fn();
+  const tokenGrantUpdateMock = jest.fn();
 
   const transactionClientMock = {
     tokenEvent: {
@@ -35,12 +40,15 @@ describe('TokenEventsService', () => {
     user: {
       findMany: userFindManyMock,
       count: userCountMock,
+      update: userUpdateMock,
     },
     adminActionLog: {
       create: adminActionLogCreateMock,
     },
     tokenGrant: {
+      findMany: tokenGrantFindManyMock,
       create: tokenGrantCreateMock,
+      update: tokenGrantUpdateMock,
       groupBy: tokenGrantGroupByMock,
       aggregate: tokenGrantAggregateMock,
       count: tokenGrantCountMock,
@@ -555,5 +563,647 @@ describe('TokenEventsService', () => {
 
     expect(userFindManyMock).not.toHaveBeenCalled();
     expect(tokenGrantAggregateMock).not.toHaveBeenCalled();
+  });
+
+  it('should create an initial token grant and EVENT_GRANT log', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const userId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+    const tokenGrantId = '9f3a2b1c-3333-4d22-8e20-def987654321';
+    const tokenLogId = '2d4c6f8a-4444-4d22-8e20-def987654321';
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: userId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 9,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([]);
+
+    tokenGrantCreateMock.mockResolvedValue({
+      id: tokenGrantId,
+    });
+
+    userUpdateMock.mockResolvedValue({
+      id: userId,
+    });
+
+    tokenLogCreateMock.mockResolvedValue({
+      id: tokenLogId,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId,
+            grantedAmount: 5,
+            reason: 'Attendance',
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      tokenEventId,
+      processedCount: 1,
+      savedCount: 1,
+      unchangedCount: 0,
+      items: [
+        {
+          status: 'CREATED',
+          tokenGrantId,
+          tokenLogId,
+          userId,
+          name: 'Alex Chan',
+          studentNumber: '20967890',
+          previousGrantedAmount: 0,
+          grantedAmount: 5,
+          deltaAmount: 5,
+          reason: 'Attendance',
+          balanceBefore: 9,
+          balanceAfter: 14,
+        },
+      ],
+    });
+
+    expect(tokenGrantCreateMock).toHaveBeenCalledWith({
+      data: {
+        tokenEventId,
+        userId,
+        grantedBy: adminId,
+        grantedAmount: 5,
+        reason: 'Attendance',
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    expect(userUpdateMock).toHaveBeenCalledWith({
+      where: {
+        id: userId,
+      },
+      data: {
+        tokenBalance: {
+          increment: 5,
+        },
+      },
+    });
+
+    expect(tokenLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        transactionType: TokenTransactionType.EVENT_GRANT,
+        adminId,
+        userId,
+        tokenGrantId,
+        balanceBefore: 9,
+        balanceAfter: 14,
+        delta: 5,
+        reason: 'Attendance',
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        adminId,
+        actionType: AdminActionType.TOKEN,
+        targetId: tokenEventId,
+        action: AdminAction.SAVE_TOKEN_GRANTS,
+        metadata: {
+          tokenEventId,
+          processedCount: 1,
+          savedCount: 1,
+          unchangedCount: 0,
+          changes: [
+            {
+              userId,
+              status: 'CREATED',
+              previousGrantedAmount: 0,
+              grantedAmount: 5,
+              deltaAmount: 5,
+              reasonChanged: false,
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it('should apply only the difference when increasing a grant', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const userId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+    const tokenGrantId = '9f3a2b1c-3333-4d22-8e20-def987654321';
+    const tokenLogId = '2d4c6f8a-4444-4d22-8e20-def987654321';
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: userId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 4,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([
+      {
+        id: tokenGrantId,
+        userId,
+        grantedAmount: 2,
+        reason: 'Event helper',
+      },
+    ]);
+
+    tokenGrantUpdateMock.mockResolvedValue({
+      id: tokenGrantId,
+    });
+
+    userUpdateMock.mockResolvedValue({
+      id: userId,
+    });
+
+    tokenLogCreateMock.mockResolvedValue({
+      id: tokenLogId,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId,
+            grantedAmount: 5,
+            reason: 'Event helper',
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      tokenEventId,
+      processedCount: 1,
+      savedCount: 1,
+      unchangedCount: 0,
+      items: [
+        {
+          status: 'UPDATED',
+          tokenGrantId,
+          tokenLogId,
+          userId,
+          name: 'Alex Chan',
+          studentNumber: '20967890',
+          previousGrantedAmount: 2,
+          grantedAmount: 5,
+          deltaAmount: 3,
+          reason: 'Event helper',
+          balanceBefore: 4,
+          balanceAfter: 7,
+        },
+      ],
+    });
+
+    expect(tokenGrantUpdateMock).toHaveBeenCalledWith({
+      where: {
+        id: tokenGrantId,
+      },
+      data: {
+        grantedAmount: 5,
+        reason: 'Event helper',
+      },
+    });
+
+    expect(userUpdateMock).toHaveBeenCalledWith({
+      where: {
+        id: userId,
+      },
+      data: {
+        tokenBalance: {
+          increment: 3,
+        },
+      },
+    });
+
+    expect(tokenLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        transactionType: TokenTransactionType.EVENT_ADJUSTMENT,
+        adminId,
+        userId,
+        tokenGrantId,
+        balanceBefore: 4,
+        balanceAfter: 7,
+        delta: 3,
+        reason: 'Event helper',
+      },
+      select: {
+        id: true,
+      },
+    });
+  });
+
+  it('should update only the reason without changing the balance', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const userId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+    const tokenGrantId = '9f3a2b1c-3333-4d22-8e20-def987654321';
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: userId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 4,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([
+      {
+        id: tokenGrantId,
+        userId,
+        grantedAmount: 2,
+        reason: 'Old reason',
+      },
+    ]);
+
+    tokenGrantUpdateMock.mockResolvedValue({
+      id: tokenGrantId,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId,
+            grantedAmount: 2,
+            reason: 'Updated reason',
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      tokenEventId,
+      processedCount: 1,
+      savedCount: 1,
+      unchangedCount: 0,
+      items: [
+        {
+          status: 'UPDATED',
+          tokenGrantId,
+          tokenLogId: null,
+          userId,
+          name: 'Alex Chan',
+          studentNumber: '20967890',
+          previousGrantedAmount: 2,
+          grantedAmount: 2,
+          deltaAmount: 0,
+          reason: 'Updated reason',
+          balanceBefore: 4,
+          balanceAfter: 4,
+        },
+      ],
+    });
+
+    expect(tokenGrantUpdateMock).toHaveBeenCalledTimes(1);
+    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(tokenLogCreateMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('should return UNCHANGED without writing records', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const existingUserId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+    const newUserId = 'c7d82b1f-3333-4a11-9f10-abc123456789';
+    const tokenGrantId = '9f3a2b1c-3333-4d22-8e20-def987654321';
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: existingUserId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 4,
+      },
+      {
+        id: newUserId,
+        name: 'Ben Lee',
+        studentNumber: '20999999',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 0,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([
+      {
+        id: tokenGrantId,
+        userId: existingUserId,
+        grantedAmount: 2,
+        reason: 'Attendance',
+      },
+    ]);
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId: existingUserId,
+            grantedAmount: 2,
+            reason: 'Attendance',
+          },
+          {
+            userId: newUserId,
+            grantedAmount: 0,
+            reason: 'No grant',
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      tokenEventId,
+      processedCount: 2,
+      savedCount: 0,
+      unchangedCount: 2,
+      items: [
+        {
+          status: 'UNCHANGED',
+          tokenGrantId,
+          tokenLogId: null,
+          userId: existingUserId,
+        },
+        {
+          status: 'UNCHANGED',
+          tokenGrantId: null,
+          tokenLogId: null,
+          userId: newUserId,
+        },
+      ],
+    });
+
+    expect(tokenGrantCreateMock).not.toHaveBeenCalled();
+    expect(tokenGrantUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(tokenLogCreateMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject the full request when a recovery would make a balance negative', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const firstUserId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+    const secondUserId = 'c7d82b1f-3333-4a11-9f10-abc123456789';
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: firstUserId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 0,
+      },
+      {
+        id: secondUserId,
+        name: 'Ben Lee',
+        studentNumber: '20999999',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 1,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([
+      {
+        id: '9f3a2b1c-3333-4d22-8e20-def987654321',
+        userId: secondUserId,
+        grantedAmount: 5,
+        reason: 'Attendance',
+      },
+    ]);
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId: firstUserId,
+            grantedAmount: 2,
+            reason: 'Event helper',
+          },
+          {
+            userId: secondUserId,
+            grantedAmount: 0,
+            reason: 'Recovered',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'T409_INSUFFICIENT_TOKEN_BALANCE',
+        message:
+          'The token grant cannot be reduced because the user has insufficient balance',
+      },
+    });
+
+    expect(tokenGrantCreateMock).not.toHaveBeenCalled();
+    expect(tokenGrantUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(tokenLogCreateMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a grant increase for an ineligible member', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const userId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: userId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.BLOCKED,
+        deletedAt: null,
+        tokenBalance: 3,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([
+      {
+        id: '9f3a2b1c-3333-4d22-8e20-def987654321',
+        userId,
+        grantedAmount: 1,
+        reason: 'Attendance',
+      },
+    ]);
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId,
+            grantedAmount: 2,
+            reason: 'Attendance',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'T409_TOKEN_GRANT_TARGET_INELIGIBLE',
+        message:
+          'Target user is not eligible for a new or increased token grant',
+      },
+    });
+
+    expect(tokenGrantUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(tokenLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should return U404 when a submitted user does not exist', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const missingUserId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([]);
+    tokenGrantFindManyMock.mockResolvedValue([]);
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId: missingUserId,
+            grantedAmount: 1,
+            reason: 'Attendance',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: {
+        errorCode: 'U404_USER_NOT_FOUND',
+        message: 'Target user not found',
+      },
+    });
+
+    expect(tokenGrantCreateMock).not.toHaveBeenCalled();
+    expect(userUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should retry a P2034 serializable transaction conflict', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const userId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+
+    const conflictError = new Prisma.PrismaClientKnownRequestError(
+      'Transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    prismaServiceMock.$transaction
+      .mockRejectedValueOnce(conflictError)
+      .mockRejectedValueOnce(conflictError);
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: userId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 0,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([]);
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId,
+            grantedAmount: 0,
+            reason: 'No grant',
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      tokenEventId,
+      processedCount: 1,
+      savedCount: 0,
+      unchangedCount: 1,
+    });
+
+    expect(prismaServiceMock.$transaction).toHaveBeenCalledTimes(3);
+
+    expect(prismaServiceMock.$transaction).toHaveBeenLastCalledWith(
+      expect.any(Function),
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   });
 });

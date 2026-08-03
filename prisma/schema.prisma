@@ -135,6 +135,7 @@ enum AdminAction {
   UPDATE_TOKEN_EVENT                @map("update_token_event")
   GRANT_TOKEN                       @map("grant_token")
   UPDATE_TOKEN_GRANT                @map("update_token_grant")
+  SAVE_TOKEN_GRANTS                 @map("save_token_grants")
   DELETE_TOKEN_EVENT                @map("delete_token_event")
   UPDATE_MEMO                       @map("update_memo")
 

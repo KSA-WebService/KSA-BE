@@ -11,6 +11,7 @@ import {
   GetTokenEventDetailQueryDto,
   TokenGrantStatusFilter,
 } from './dto/get-token-event-detail-query.dto';
+import { SaveTokenGrantsDto } from './dto/save-token-grants.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -25,6 +26,7 @@ describe('TokenEventsController', () => {
     create: jest.fn(),
     findAll: jest.fn(),
     findOne: jest.fn(),
+    saveGrants: jest.fn(),
   };
 
   const supabaseAuthGuardMock = {
@@ -158,5 +160,49 @@ describe('TokenEventsController', () => {
       tokenEventId,
       query,
     );
+  });
+
+  it('should forward token grant saving parameters to the service', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+
+    const adminId = '7c2e7d1a-1111-4c11-8f10-abc123456789';
+
+    const body: SaveTokenGrantsDto = {
+      grants: [
+        {
+          userId: 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53',
+          grantedAmount: 5,
+          reason: 'Attendance',
+        },
+      ],
+    };
+
+    const expected = {
+      tokenEventId,
+      processedCount: 1,
+      savedCount: 1,
+      unchangedCount: 0,
+      items: [],
+    };
+
+    tokenEventsServiceMock.saveGrants.mockResolvedValue(expected);
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    } as AuthenticatedRequest;
+
+    const result = await controller.saveGrants(tokenEventId, body, request);
+
+    expect(tokenEventsServiceMock.saveGrants).toHaveBeenCalledTimes(1);
+
+    expect(tokenEventsServiceMock.saveGrants).toHaveBeenCalledWith(
+      tokenEventId,
+      adminId,
+      body,
+    );
+
+    expect(result).toEqual(expected);
   });
 });
