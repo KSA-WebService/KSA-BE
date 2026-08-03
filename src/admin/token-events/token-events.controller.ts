@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -16,6 +17,7 @@ import { CreateTokenEventDto } from './dto/create-token-event.dto';
 import { GetTokenEventDetailQueryDto } from './dto/get-token-event-detail-query.dto';
 import { GetTokenEventsQueryDto } from './dto/get-token-events-query.dto';
 import { TokenEventsService } from './token-events.service';
+import { SaveTokenGrantsDto } from './dto/save-token-grants.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -34,6 +36,20 @@ export class TokenEventsController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.tokenEventsService.create(dto, request.user.id);
+  }
+
+  @Patch(':tokenEventId/grants')
+  async saveGrants(
+    @Param('tokenEventId', new ParseUUIDPipe({ version: '4' }))
+    tokenEventId: string,
+    @Body() body: SaveTokenGrantsDto,
+    @Req() request: { user: { id: string } },
+  ) {
+    return this.tokenEventsService.saveGrants(
+      tokenEventId,
+      request.user.id,
+      body,
+    );
   }
 
   @Get()
