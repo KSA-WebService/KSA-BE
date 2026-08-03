@@ -11,6 +11,7 @@ import { InvitationsModule } from './admin/auth/invitations/invitations.module';
 import { AdminProfileModule } from './admin/profile/admin-profile.module';
 import { AdminUsersModule } from './admin/users/admin-users.module';
 import { TokenEventsModule } from './admin/token-events/token-events.module';
+import { TokenBalancesModule } from './admin/token-balances/token-balances.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { TokenEventsModule } from './admin/token-events/token-events.module';
     AdminUsersModule,
     AdminProfileModule,
     TokenEventsModule,
+    TokenBalancesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
