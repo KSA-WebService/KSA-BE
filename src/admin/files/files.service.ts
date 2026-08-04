@@ -1,9 +1,18 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common';
-import { FilePurpose, FileStatus } from '@prisma/client';
+import {
+  AdminAction,
+  AdminActionType,
+  FilePurpose,
+  FileStatus,
+  Prisma,
+} from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -39,6 +48,25 @@ const IMAGE_TYPE_RULES: Record<string, ImageTypeRule> = {
     storageExtension: 'webp',
   },
 };
+
+const COMPLETE_FILE_SELECT = {
+  id: true,
+  uploadedBy: true,
+  originalName: true,
+  storagePath: true,
+  fileUrl: true,
+  contentType: true,
+  fileSize: true,
+  purpose: true,
+  status: true,
+  createdAt: true,
+  completedAt: true,
+  deletedAt: true,
+} satisfies Prisma.FileSelect;
+
+type CompleteFileRecord = Prisma.FileGetPayload<{
+  select: typeof COMPLETE_FILE_SELECT;
+}>;
 
 @Injectable()
 export class FilesService {
@@ -133,6 +161,134 @@ export class FilesService {
     };
   }
 
+  async completeFileUpload(fileId: string, adminId: string) {
+    const file = await this.prisma.file.findUnique({
+      where: {
+        id: fileId,
+      },
+      select: COMPLETE_FILE_SELECT,
+    });
+
+    if (!file) {
+      throw new NotFoundException({
+        errorCode: 'F404_FILE_NOT_FOUND',
+        message: 'File not found',
+      });
+    }
+
+    this.ensureFileOwner(file.uploadedBy, adminId);
+    this.ensureFileNotDeleted(file);
+
+    if (file.status === FileStatus.COMPLETED) {
+      return this.toFileCompletionResponse(file);
+    }
+
+    let storedImageInfo: {
+      size: number;
+      contentType: string;
+    } | null;
+
+    try {
+      storedImageInfo = await this.supabaseAdminService.getStoredImageInfo(
+        file.storagePath,
+      );
+    } catch {
+      throw new InternalServerErrorException({
+        errorCode: 'F500_FILE_VERIFICATION_FAILED',
+        message: 'Failed to verify the uploaded file',
+      });
+    }
+
+    if (!storedImageInfo) {
+      throw new ConflictException({
+        errorCode: 'F409_FILE_NOT_UPLOADED',
+        message: 'The file has not been uploaded to Storage',
+      });
+    }
+
+    const metadataMatches =
+      storedImageInfo.size === file.fileSize &&
+      storedImageInfo.contentType === file.contentType;
+
+    if (!metadataMatches) {
+      throw new ConflictException({
+        errorCode: 'F409_FILE_METADATA_MISMATCH',
+        message: 'Uploaded file metadata does not match the requested file',
+      });
+    }
+
+    const completedAt = new Date();
+
+    return this.prisma.$transaction(async (transaction) => {
+      const updateResult = await transaction.file.updateMany({
+        where: {
+          id: file.id,
+          uploadedBy: adminId,
+          status: FileStatus.PENDING,
+          deletedAt: null,
+        },
+        data: {
+          status: FileStatus.COMPLETED,
+          completedAt,
+        },
+      });
+
+      if (updateResult.count === 0) {
+        const currentFile = await transaction.file.findUnique({
+          where: {
+            id: file.id,
+          },
+          select: COMPLETE_FILE_SELECT,
+        });
+
+        if (!currentFile) {
+          throw new NotFoundException({
+            errorCode: 'F404_FILE_NOT_FOUND',
+            message: 'File not found',
+          });
+        }
+
+        this.ensureFileOwner(currentFile.uploadedBy, adminId);
+
+        this.ensureFileNotDeleted(currentFile);
+
+        if (currentFile.status === FileStatus.COMPLETED) {
+          return this.toFileCompletionResponse(currentFile);
+        }
+
+        throw new InternalServerErrorException({
+          errorCode: 'F500_FILE_COMPLETION_FAILED',
+          message: 'Failed to complete the file upload',
+        });
+      }
+
+      await transaction.adminActionLog.create({
+        data: {
+          adminId,
+          actionType: AdminActionType.FILE,
+          targetId: file.id,
+          action: AdminAction.UPLOAD_FILE,
+          metadata: {
+            originalName: file.originalName,
+            storagePath: file.storagePath,
+            contentType: file.contentType,
+            fileSize: file.fileSize,
+            purpose: file.purpose,
+          },
+        },
+      });
+
+      const completedFile = await transaction.file.findUniqueOrThrow({
+        where: {
+          id: file.id,
+        },
+        select: COMPLETE_FILE_SELECT,
+      });
+
+      return this.toFileCompletionResponse(completedFile);
+    });
+  }
+
   private validateFileSize(fileSize: number): void {
     if (fileSize <= 0) {
       throw new BadRequestException({
@@ -179,5 +335,41 @@ export class FilesService {
 
       return characterCode <= 31 || characterCode === 127;
     });
+  }
+
+  private ensureFileOwner(uploadedBy: string | null, adminId: string): void {
+    if (uploadedBy !== adminId) {
+      throw new ForbiddenException({
+        errorCode: 'F403_FILE_ACCESS_DENIED',
+        message: 'You do not have access to this file',
+      });
+    }
+  }
+
+  private ensureFileNotDeleted(file: CompleteFileRecord): void {
+    const isDeleted =
+      file.status === FileStatus.DELETED || file.deletedAt !== null;
+
+    if (isDeleted) {
+      throw new ConflictException({
+        errorCode: 'F409_FILE_DELETED',
+        message: 'Deleted files cannot be completed',
+      });
+    }
+  }
+
+  private toFileCompletionResponse(file: CompleteFileRecord) {
+    return {
+      fileId: file.id,
+      originalName: file.originalName,
+      storagePath: file.storagePath,
+      fileUrl: file.fileUrl,
+      contentType: file.contentType,
+      fileSize: file.fileSize,
+      purpose: file.purpose,
+      status: file.status,
+      createdAt: file.createdAt,
+      completedAt: file.completedAt,
+    };
   }
 }

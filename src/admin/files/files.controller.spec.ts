@@ -18,6 +18,7 @@ describe('FilesController', () => {
 
   const filesServiceMock = {
     createImageUploadUrl: jest.fn(),
+    completeFileUpload: jest.fn(),
   };
 
   const guardMock = {
@@ -89,6 +90,47 @@ describe('FilesController', () => {
 
     expect(filesServiceMock.createImageUploadUrl).toHaveBeenCalledWith(
       dto,
+      adminId,
+    );
+  });
+
+  it('should pass the file ID and admin ID to the completion service', async () => {
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+    const fileId = '9f3a2b1c-3333-4d22-8e20-def987654321';
+
+    const expected = {
+      fileId,
+      originalName: 'notice-image.png',
+      storagePath: `post-images/2026/08/${fileId}.png`,
+      fileUrl: `https://project.supabase.co/storage/v1/object/public/public-images/post-images/2026/08/${fileId}.png`,
+      contentType: 'image/png',
+      fileSize: 204800,
+      purpose: FilePurpose.POST_IMAGE,
+      status: FileStatus.COMPLETED,
+      createdAt: new Date('2026-08-05T03:30:00.000Z'),
+      completedAt: new Date('2026-08-05T03:32:00.000Z'),
+    };
+
+    filesServiceMock.completeFileUpload.mockResolvedValue(expected);
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    } as AuthenticatedRequest;
+
+    await expect(
+      controller.completeFileUpload(
+        {
+          fileId,
+        },
+        request,
+      ),
+    ).resolves.toEqual(expected);
+
+    expect(filesServiceMock.completeFileUpload).toHaveBeenCalledWith(
+      fileId,
       adminId,
     );
   });

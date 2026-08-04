@@ -4,6 +4,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
 import { CreateImageUploadUrlDto } from './dto/create-image-upload-url.dto';
 import { FilesService } from './files.service';
+import { CompleteFileUploadDto } from './dto/complete-file-upload.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -22,5 +23,13 @@ export class FilesController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.filesService.createImageUploadUrl(dto, request.user.id);
+  }
+
+  @Post('complete')
+  async completeFileUpload(
+    @Body() dto: CompleteFileUploadDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.filesService.completeFileUpload(dto.fileId, request.user.id);
   }
 }
