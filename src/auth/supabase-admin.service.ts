@@ -7,6 +7,11 @@ type SignedImageUpload = {
   token: string;
 };
 
+type StoredImageInfo = {
+  size: number;
+  contentType: string;
+};
+
 @Injectable()
 export class SupabaseAdminService {
   private readonly client: ReturnType<typeof createClient>;
@@ -92,5 +97,62 @@ export class SupabaseAdminService {
       .getPublicUrl(storagePath);
 
     return data.publicUrl;
+  }
+
+  async getStoredImageInfo(
+    storagePath: string,
+  ): Promise<StoredImageInfo | null> {
+    const { data, error } = await this.client.storage
+      .from(this.storageBucket)
+      .info(storagePath);
+
+    if (error) {
+      if (this.isStorageNotFoundError(error)) {
+        return null;
+      }
+
+      throw error;
+    }
+
+    if (!data) {
+      throw new Error('Supabase Storage returned invalid file metadata');
+    }
+
+    const { size, contentType } = data;
+
+    if (
+      typeof size !== 'number' ||
+      !Number.isSafeInteger(size) ||
+      typeof contentType !== 'string'
+    ) {
+      throw new Error('Supabase Storage returned invalid file metadata');
+    }
+
+    return {
+      size,
+      contentType,
+    };
+  }
+
+  private isStorageNotFoundError(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) {
+      return false;
+    }
+
+    const storageError = error as {
+      status?: number;
+      statusCode?: number | string;
+      code?: string;
+      error?: string;
+    };
+
+    const statusCode = Number(storageError.statusCode ?? storageError.status);
+
+    return (
+      statusCode === 404 ||
+      storageError.code === 'NoSuchKey' ||
+      storageError.code === 'not_found' ||
+      storageError.error === 'not_found'
+    );
   }
 }

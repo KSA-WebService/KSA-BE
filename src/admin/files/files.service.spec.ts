@@ -3,7 +3,12 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { FilePurpose, FileStatus } from '@prisma/client';
+import {
+  AdminAction,
+  AdminActionType,
+  FilePurpose,
+  FileStatus,
+} from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseAdminService } from '../../auth/supabase-admin.service';
@@ -25,15 +30,80 @@ describe('FilesService', () => {
 
   const fileCreateMock = jest.fn();
 
+  const fileFindUniqueMock = jest.fn();
+
+  const transactionFileUpdateManyMock = jest.fn();
+
+  const transactionFileFindUniqueMock = jest.fn();
+
+  const transactionFileFindUniqueOrThrowMock = jest.fn();
+
+  const adminActionLogCreateMock = jest.fn();
+
+  const transactionClientMock = {
+    file: {
+      updateMany: transactionFileUpdateManyMock,
+      findUnique: transactionFileFindUniqueMock,
+      findUniqueOrThrow: transactionFileFindUniqueOrThrowMock,
+    },
+    adminActionLog: {
+      create: adminActionLogCreateMock,
+    },
+  };
+
+  const transactionMock = jest.fn(
+    async (
+      callback: (transaction: typeof transactionClientMock) => Promise<unknown>,
+    ) => callback(transactionClientMock),
+  );
+
   const prismaServiceMock = {
     file: {
       create: fileCreateMock,
+      findUnique: fileFindUniqueMock,
     },
+    $transaction: transactionMock,
   };
 
   const supabaseAdminServiceMock = {
     createSignedImageUploadUrl: jest.fn(),
     getPublicImageUrl: jest.fn(),
+    getStoredImageInfo: jest.fn(),
+  };
+
+  const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+  const otherAdminId = 'a5b922c5-9ca5-4c29-81e6-8faec8fbda54';
+
+  const fileId = '9f3a2b1c-3333-4d22-8e20-def987654321';
+
+  const createdAt = new Date('2026-08-05T03:30:00.000Z');
+
+  const completedAt = new Date('2026-08-04T05:00:00.000Z');
+
+  const storagePath = `post-images/2026/08/${fileId}.png`;
+
+  const fileUrl = `https://project.supabase.co/storage/v1/object/public/public-images/${storagePath}`;
+
+  const pendingFile = {
+    id: fileId,
+    uploadedBy: adminId,
+    originalName: 'notice-image.png',
+    storagePath,
+    fileUrl,
+    contentType: 'image/png',
+    fileSize: 204800,
+    purpose: FilePurpose.POST_IMAGE,
+    status: FileStatus.PENDING,
+    createdAt,
+    completedAt: null,
+    deletedAt: null,
+  };
+
+  const completedFile = {
+    ...pendingFile,
+    status: FileStatus.COMPLETED,
+    completedAt,
   };
 
   beforeEach(async () => {
@@ -222,5 +292,256 @@ describe('FilesService', () => {
     ).rejects.toBeInstanceOf(InternalServerErrorException);
 
     expect(fileCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should verify Storage metadata and complete a pending file', async () => {
+    fileFindUniqueMock.mockResolvedValue(pendingFile);
+
+    supabaseAdminServiceMock.getStoredImageInfo.mockResolvedValue({
+      size: pendingFile.fileSize,
+      contentType: pendingFile.contentType,
+    });
+
+    transactionFileUpdateManyMock.mockResolvedValue({
+      count: 1,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    transactionFileFindUniqueOrThrowMock.mockResolvedValue(completedFile);
+
+    await expect(service.completeFileUpload(fileId, adminId)).resolves.toEqual({
+      fileId,
+      originalName: pendingFile.originalName,
+      storagePath,
+      fileUrl,
+      contentType: pendingFile.contentType,
+      fileSize: pendingFile.fileSize,
+      purpose: pendingFile.purpose,
+      status: FileStatus.COMPLETED,
+      createdAt,
+      completedAt,
+    });
+
+    expect(supabaseAdminServiceMock.getStoredImageInfo).toHaveBeenCalledWith(
+      storagePath,
+    );
+
+    expect(transactionFileUpdateManyMock).toHaveBeenCalledWith({
+      where: {
+        id: fileId,
+        uploadedBy: adminId,
+        status: FileStatus.PENDING,
+        deletedAt: null,
+      },
+      data: {
+        status: FileStatus.COMPLETED,
+        completedAt,
+      },
+    });
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        adminId,
+        actionType: AdminActionType.FILE,
+        targetId: fileId,
+        action: AdminAction.UPLOAD_FILE,
+        metadata: {
+          originalName: pendingFile.originalName,
+          storagePath,
+          contentType: pendingFile.contentType,
+          fileSize: pendingFile.fileSize,
+          purpose: pendingFile.purpose,
+        },
+      },
+    });
+  });
+
+  it('should reject a file that does not exist', async () => {
+    fileFindUniqueMock.mockResolvedValue(null);
+
+    await expect(
+      service.completeFileUpload(fileId, adminId),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: {
+        errorCode: 'F404_FILE_NOT_FOUND',
+      },
+    });
+
+    expect(supabaseAdminServiceMock.getStoredImageInfo).not.toHaveBeenCalled();
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject completion by another administrator', async () => {
+    fileFindUniqueMock.mockResolvedValue(pendingFile);
+
+    await expect(
+      service.completeFileUpload(fileId, otherAdminId),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: {
+        errorCode: 'F403_FILE_ACCESS_DENIED',
+      },
+    });
+
+    expect(supabaseAdminServiceMock.getStoredImageInfo).not.toHaveBeenCalled();
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a deleted file', async () => {
+    fileFindUniqueMock.mockResolvedValue({
+      ...pendingFile,
+      status: FileStatus.DELETED,
+      deletedAt: new Date('2026-08-05T04:00:00.000Z'),
+    });
+
+    await expect(
+      service.completeFileUpload(fileId, adminId),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_DELETED',
+      },
+    });
+
+    expect(supabaseAdminServiceMock.getStoredImageInfo).not.toHaveBeenCalled();
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should return an already completed file without creating another log', async () => {
+    fileFindUniqueMock.mockResolvedValue(completedFile);
+
+    await expect(service.completeFileUpload(fileId, adminId)).resolves.toEqual({
+      fileId,
+      originalName: completedFile.originalName,
+      storagePath,
+      fileUrl,
+      contentType: completedFile.contentType,
+      fileSize: completedFile.fileSize,
+      purpose: completedFile.purpose,
+      status: FileStatus.COMPLETED,
+      createdAt,
+      completedAt,
+    });
+
+    expect(supabaseAdminServiceMock.getStoredImageInfo).not.toHaveBeenCalled();
+
+    expect(transactionMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should keep the file pending when the Storage object does not exist', async () => {
+    fileFindUniqueMock.mockResolvedValue(pendingFile);
+
+    supabaseAdminServiceMock.getStoredImageInfo.mockResolvedValue(null);
+
+    await expect(
+      service.completeFileUpload(fileId, adminId),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_NOT_UPLOADED',
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a Storage file with a mismatched size', async () => {
+    fileFindUniqueMock.mockResolvedValue(pendingFile);
+
+    supabaseAdminServiceMock.getStoredImageInfo.mockResolvedValue({
+      size: pendingFile.fileSize + 1,
+      contentType: pendingFile.contentType,
+    });
+
+    await expect(
+      service.completeFileUpload(fileId, adminId),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_METADATA_MISMATCH',
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a Storage file with a mismatched content type', async () => {
+    fileFindUniqueMock.mockResolvedValue(pendingFile);
+
+    supabaseAdminServiceMock.getStoredImageInfo.mockResolvedValue({
+      size: pendingFile.fileSize,
+      contentType: 'image/jpeg',
+    });
+
+    await expect(
+      service.completeFileUpload(fileId, adminId),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_METADATA_MISMATCH',
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should return an internal error when Storage verification fails', async () => {
+    fileFindUniqueMock.mockResolvedValue(pendingFile);
+
+    supabaseAdminServiceMock.getStoredImageInfo.mockRejectedValue(
+      new Error('Storage failure'),
+    );
+
+    await expect(
+      service.completeFileUpload(fileId, adminId),
+    ).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'F500_FILE_VERIFICATION_FAILED',
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should return the completed file when another request completed it first', async () => {
+    fileFindUniqueMock.mockResolvedValue(pendingFile);
+
+    supabaseAdminServiceMock.getStoredImageInfo.mockResolvedValue({
+      size: pendingFile.fileSize,
+      contentType: pendingFile.contentType,
+    });
+
+    transactionFileUpdateManyMock.mockResolvedValue({
+      count: 0,
+    });
+
+    transactionFileFindUniqueMock.mockResolvedValue(completedFile);
+
+    await expect(service.completeFileUpload(fileId, adminId)).resolves.toEqual({
+      fileId,
+      originalName: completedFile.originalName,
+      storagePath,
+      fileUrl,
+      contentType: completedFile.contentType,
+      fileSize: completedFile.fileSize,
+      purpose: completedFile.purpose,
+      status: FileStatus.COMPLETED,
+      createdAt,
+      completedAt,
+    });
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+
+    expect(transactionFileFindUniqueOrThrowMock).not.toHaveBeenCalled();
   });
 });
