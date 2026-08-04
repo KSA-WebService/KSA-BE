@@ -12,6 +12,7 @@ import { AdminProfileModule } from './admin/profile/admin-profile.module';
 import { AdminUsersModule } from './admin/users/admin-users.module';
 import { TokenEventsModule } from './admin/token-events/token-events.module';
 import { TokenBalancesModule } from './admin/token-balances/token-balances.module';
+import { FilesModule } from './admin/files/files.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { TokenBalancesModule } from './admin/token-balances/token-balances.modul
     AdminProfileModule,
     TokenEventsModule,
     TokenBalancesModule,
+    FilesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
