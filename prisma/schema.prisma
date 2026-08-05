@@ -57,15 +57,15 @@ enum PublicationStatus {
   @@map("publication_status")
 }
 
-enum ContentPostType {
-  PARTNERSHIP  @map("partnership")
+enum ContentPostCategoryType {
   EVENT        @map("event")
-  CO_PURCHASE  @map("co-purchase")
   CAREER       @map("career")
+  PARTNERSHIP  @map("partnership")
+  CO_PURCHASE  @map("co_purchase")
   ANNOUNCEMENT @map("announcement")
-  KSA          @map("KSA")
+  ALUMNI       @map("alumni")
 
-  @@map("content_post_type")
+  @@map("content_post_category_type")
 }
 
 enum FileStatus {
@@ -322,27 +322,39 @@ model OrderStatusLog {
 model ContentPost {
   id             String            @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
   authorId       String            @map("author_id") @db.Uuid
-  type           ContentPostType   @map("type")
   title          String            @map("title") @db.VarChar(255)
   content        String?           @map("content") @db.Text
   status         PublicationStatus @default(DRAFT) @map("status")
+  membersOnly    Boolean           @default(false) @map("members_only")
   publishedAt    DateTime?         @map("published_at")
+  eventStartAt   DateTime?         @map("event_start_at")
+  eventEndAt     DateTime?         @map("event_end_at")
+  showOnCalendar Boolean           @default(false) @map("show_on_calendar")
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @default(now()) @updatedAt @map("updated_at")
-  eventStartDate DateTime?         @map("event_start_date") @db.Date
-  eventEndDate   DateTime?         @map("event_end_date") @db.Date
-  showOnCalendar Boolean           @default(false) @map("show_on_calendar")
   deletedAt      DateTime?         @map("deleted_at")
 
-  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
-
-  images ContentImage[]
+  author     User                  @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  images     ContentImage[]
+  categories ContentPostCategory[]
 
   @@index([authorId])
-  @@index([type])
-  @@index([status])
-  @@index([showOnCalendar, eventStartDate])
+  @@index([status, deletedAt])
+  @@index([membersOnly])
+  @@index([showOnCalendar, status, eventStartAt])
   @@map("content_posts")
+}
+
+model ContentPostCategory {
+  contentPostId String                  @map("content_post_id") @db.Uuid
+  category      ContentPostCategoryType @map("category")
+  createdAt     DateTime                @default(now()) @map("created_at")
+
+  post ContentPost @relation(fields: [contentPostId], references: [id], onDelete: Cascade)
+
+  @@id([contentPostId, category])
+  @@index([category, contentPostId])
+  @@map("content_post_categories")
 }
 
 model ContentImage {
@@ -355,6 +367,8 @@ model ContentImage {
   post ContentPost @relation(fields: [contentPostId], references: [id], onDelete: Cascade)
   file File        @relation(fields: [fileId], references: [id], onDelete: Restrict)
 
+  @@unique([contentPostId, fileId])
+  @@unique([contentPostId, sortOrder])
   @@index([contentPostId])
   @@index([fileId])
   @@map("content_images")
