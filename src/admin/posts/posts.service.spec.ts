@@ -34,6 +34,7 @@ describe('PostsService', () => {
   const contentPostCreateMock = jest.fn();
   const adminActionLogCreateMock = jest.fn();
   const transactionMock = jest.fn();
+  const contentPostFindFirstMock = jest.fn();
 
   const transactionClientMock = {
     file: {
@@ -53,6 +54,9 @@ describe('PostsService', () => {
 
   const prismaMock = {
     $transaction: transactionMock,
+    contentPost: {
+      findFirst: contentPostFindFirstMock,
+    },
   };
 
   const service = new PostsService(prismaMock as unknown as PrismaService);
@@ -627,5 +631,245 @@ describe('PostsService', () => {
     expect(contentPostCreateMock).toHaveBeenCalledTimes(1);
 
     expect(adminActionLogCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('should retrieve a published post with categories, ordered images, and author information', async () => {
+    const contentImageId1 = '2a85f3d9-f874-4e2c-ae62-762fb311ae84';
+
+    const contentImageId2 = '3b96e4ea-a985-4f3d-bf73-873fc422bf95';
+
+    const eventStartAt = new Date('2026-09-10T10:30:00.000Z');
+
+    const eventEndAt = new Date('2026-09-10T12:00:00.000Z');
+
+    const updatedAt = new Date('2026-08-06T01:30:00.000Z');
+
+    contentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      title: 'Members-only Career Talk',
+      content: '📌 행사 안내\n• HKUST 동문과 함께하는 커리어 토크입니다.',
+      membersOnly: true,
+      status: PublicationStatus.PUBLISHED,
+      eventStartAt,
+      eventEndAt,
+      showOnCalendar: true,
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt,
+      categories: [
+        {
+          category: ContentPostCategoryType.ALUMNI,
+        },
+        {
+          category: ContentPostCategoryType.CAREER,
+        },
+        {
+          category: ContentPostCategoryType.EVENT,
+        },
+      ],
+      images: [
+        {
+          id: contentImageId1,
+          fileId: fileId1,
+          sortOrder: 1,
+          file: {
+            originalName: 'career-talk-main.jpg',
+            fileUrl: 'https://example.com/image-1.jpg',
+            contentType: 'image/jpeg',
+            fileSize: 1443648,
+          },
+        },
+        {
+          id: contentImageId2,
+          fileId: fileId2,
+          sortOrder: 2,
+          file: {
+            originalName: 'career-talk-detail.png',
+            fileUrl: 'https://example.com/image-2.png',
+            contentType: 'image/png',
+            fileSize: 900000,
+          },
+        },
+      ],
+      author: {
+        id: adminId,
+        name: 'Sulynn Kim',
+      },
+    });
+
+    await expect(service.getPostDetail(postId)).resolves.toEqual({
+      postId,
+      title: 'Members-only Career Talk',
+      content: '📌 행사 안내\n• HKUST 동문과 함께하는 커리어 토크입니다.',
+      categories: [
+        ContentPostCategoryValue.ALUMNI,
+        ContentPostCategoryValue.CAREER,
+        ContentPostCategoryValue.EVENT,
+      ],
+      membersOnly: true,
+      status: CreateContentPostStatus.PUBLISHED,
+      eventStartAt,
+      eventEndAt,
+      showOnCalendar: true,
+      images: [
+        {
+          contentImageId: contentImageId1,
+          fileId: fileId1,
+          originalName: 'career-talk-main.jpg',
+          fileUrl: 'https://example.com/image-1.jpg',
+          contentType: 'image/jpeg',
+          fileSize: 1443648,
+          sortOrder: 1,
+        },
+        {
+          contentImageId: contentImageId2,
+          fileId: fileId2,
+          originalName: 'career-talk-detail.png',
+          fileUrl: 'https://example.com/image-2.png',
+          contentType: 'image/png',
+          fileSize: 900000,
+          sortOrder: 2,
+        },
+      ],
+      author: {
+        userId: adminId,
+        name: 'Sulynn Kim',
+      },
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt,
+    });
+
+    expect(contentPostFindFirstMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: postId,
+          deletedAt: null,
+        },
+      }),
+    );
+
+    expect(transactionMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should retrieve a draft post with nullable content and schedule values', async () => {
+    const updatedAt = new Date('2026-08-06T01:00:00.000Z');
+
+    contentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      title: 'Orientation Day',
+      content: null,
+      membersOnly: false,
+      status: PublicationStatus.DRAFT,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+      publishedAt: null,
+      createdAt: fixedNow,
+      updatedAt,
+      categories: [
+        {
+          category: ContentPostCategoryType.EVENT,
+        },
+      ],
+      images: [],
+      author: {
+        id: adminId,
+        name: 'Sulynn Kim',
+      },
+    });
+
+    await expect(service.getPostDetail(postId)).resolves.toEqual({
+      postId,
+      title: 'Orientation Day',
+      content: null,
+      categories: [ContentPostCategoryValue.EVENT],
+      membersOnly: false,
+      status: CreateContentPostStatus.DRAFT,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+      images: [],
+      author: {
+        userId: adminId,
+        name: 'Sulynn Kim',
+      },
+      publishedAt: null,
+      createdAt: fixedNow,
+      updatedAt,
+    });
+  });
+
+  it('should allow an administrator to retrieve a hidden post', async () => {
+    const updatedAt = new Date('2026-08-06T02:00:00.000Z');
+
+    contentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      title: 'Hidden Announcement',
+      content: 'This post is hidden from public screens.',
+      membersOnly: false,
+      status: PublicationStatus.HIDDEN,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt,
+      categories: [
+        {
+          category: ContentPostCategoryType.ANNOUNCEMENT,
+        },
+      ],
+      images: [],
+      author: {
+        id: adminId,
+        name: 'Sulynn Kim',
+      },
+    });
+
+    await expect(service.getPostDetail(postId)).resolves.toMatchObject({
+      postId,
+      status: 'hidden',
+      publishedAt: fixedNow,
+    });
+  });
+
+  it('should reject a missing or soft-deleted post', async () => {
+    contentPostFindFirstMock.mockResolvedValue(null);
+
+    await expect(service.getPostDetail(postId)).rejects.toMatchObject({
+      status: 404,
+      response: {
+        errorCode: 'C404_CONTENT_POST_NOT_FOUND',
+        message: 'Content post not found',
+      },
+    });
+
+    expect(contentPostFindFirstMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: postId,
+          deletedAt: null,
+        },
+      }),
+    );
+  });
+
+  it('should return a fetch error when the database query fails', async () => {
+    contentPostFindFirstMock.mockRejectedValue(new Error('Database failure'));
+
+    await expect(service.getPostDetail(postId)).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'C500_CONTENT_POST_FETCH_FAILED',
+        message: 'Failed to retrieve the content post',
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
   });
 });
