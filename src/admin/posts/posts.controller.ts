@@ -1,6 +1,9 @@
 import {
   Body,
   Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
   HttpCode,
   HttpStatus,
   Post,
@@ -31,5 +34,13 @@ export class PostsController {
     @Req() request: AuthenticatedAdminRequest,
   ) {
     return this.postsService.createPost(dto, request.user.id);
+  }
+
+  @Get(':postId')
+  async getPostDetail(
+    @Param('postId', new ParseUUIDPipe({ version: '4' }))
+    postId: string,
+  ) {
+    return this.postsService.getPostDetail(postId);
   }
 }

@@ -12,6 +12,7 @@ import {
   ContentPostCategoryType,
   FilePurpose,
   FileStatus,
+  Prisma,
   PublicationStatus,
 } from '@prisma/client';
 
@@ -37,6 +38,72 @@ const STATUS_MAP: Record<CreateContentPostStatus, PublicationStatus> = {
   [CreateContentPostStatus.DRAFT]: PublicationStatus.DRAFT,
   [CreateContentPostStatus.PUBLISHED]: PublicationStatus.PUBLISHED,
 };
+
+const CATEGORY_VALUE_MAP: Record<
+  ContentPostCategoryType,
+  ContentPostCategoryValue
+> = {
+  [ContentPostCategoryType.EVENT]: ContentPostCategoryValue.EVENT,
+  [ContentPostCategoryType.CAREER]: ContentPostCategoryValue.CAREER,
+  [ContentPostCategoryType.PARTNERSHIP]: ContentPostCategoryValue.PARTNERSHIP,
+  [ContentPostCategoryType.CO_PURCHASE]: ContentPostCategoryValue.CO_PURCHASE,
+  [ContentPostCategoryType.ANNOUNCEMENT]: ContentPostCategoryValue.ANNOUNCEMENT,
+  [ContentPostCategoryType.ALUMNI]: ContentPostCategoryValue.ALUMNI,
+};
+
+type ContentPostStatusValue = CreateContentPostStatus | 'hidden';
+
+const STATUS_VALUE_MAP: Record<PublicationStatus, ContentPostStatusValue> = {
+  [PublicationStatus.DRAFT]: CreateContentPostStatus.DRAFT,
+  [PublicationStatus.PUBLISHED]: CreateContentPostStatus.PUBLISHED,
+  [PublicationStatus.HIDDEN]: 'hidden',
+};
+
+const POST_DETAIL_SELECT = {
+  id: true,
+  title: true,
+  content: true,
+  membersOnly: true,
+  status: true,
+  eventStartAt: true,
+  eventEndAt: true,
+  showOnCalendar: true,
+  publishedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  categories: {
+    orderBy: {
+      category: 'asc',
+    },
+    select: {
+      category: true,
+    },
+  },
+  images: {
+    orderBy: {
+      sortOrder: 'asc',
+    },
+    select: {
+      id: true,
+      fileId: true,
+      sortOrder: true,
+      file: {
+        select: {
+          originalName: true,
+          fileUrl: true,
+          contentType: true,
+          fileSize: true,
+        },
+      },
+    },
+  },
+  author: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} satisfies Prisma.ContentPostSelect;
 
 type PostImageFile = {
   id: string;
@@ -179,6 +246,64 @@ export class PostsService {
       throw new InternalServerErrorException({
         errorCode: 'C500_CONTENT_POST_CREATE_FAILED',
         message: 'Failed to create the content post',
+      });
+    }
+  }
+
+  async getPostDetail(postId: string) {
+    try {
+      const post = await this.prisma.contentPost.findFirst({
+        where: {
+          id: postId,
+          deletedAt: null,
+        },
+        select: POST_DETAIL_SELECT,
+      });
+
+      if (!post) {
+        throw new NotFoundException({
+          errorCode: 'C404_CONTENT_POST_NOT_FOUND',
+          message: 'Content post not found',
+        });
+      }
+
+      return {
+        postId: post.id,
+        title: post.title,
+        content: post.content,
+        categories: post.categories.map(
+          ({ category }) => CATEGORY_VALUE_MAP[category],
+        ),
+        membersOnly: post.membersOnly,
+        status: STATUS_VALUE_MAP[post.status],
+        eventStartAt: post.eventStartAt,
+        eventEndAt: post.eventEndAt,
+        showOnCalendar: post.showOnCalendar,
+        images: post.images.map((image) => ({
+          contentImageId: image.id,
+          fileId: image.fileId,
+          originalName: image.file.originalName,
+          fileUrl: image.file.fileUrl,
+          contentType: image.file.contentType,
+          fileSize: image.file.fileSize,
+          sortOrder: image.sortOrder,
+        })),
+        author: {
+          userId: post.author.id,
+          name: post.author.name,
+        },
+        publishedAt: post.publishedAt,
+        createdAt: post.createdAt,
+        updatedAt: post.updatedAt,
+      };
+    } catch (error: unknown) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException({
+        errorCode: 'C500_CONTENT_POST_FETCH_FAILED',
+        message: 'Failed to retrieve the content post',
       });
     }
   }

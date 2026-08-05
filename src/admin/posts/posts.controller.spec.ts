@@ -8,9 +8,11 @@ import { PostsService } from './posts.service';
 
 describe('PostsController', () => {
   const createPostMock = jest.fn();
+  const getPostDetailMock = jest.fn();
 
   const postsServiceMock = {
     createPost: createPostMock,
+    getPostDetail: getPostDetailMock,
   };
 
   const controller = new PostsController(
@@ -114,5 +116,41 @@ describe('PostsController', () => {
     );
 
     expect(createPostMock).toHaveBeenCalledWith(dto, adminId);
+  });
+
+  it('should pass the post ID to the detail service', async () => {
+    const postId = '8bc95b8f-cbd1-45ed-b2ef-f80dd06e92db';
+
+    const expected = {
+      postId,
+      title: 'Members-only Career Talk',
+      content: '📌 행사 안내\n• HKUST 동문과 함께하는 커리어 토크입니다.',
+      categories: [
+        ContentPostCategoryValue.CAREER,
+        ContentPostCategoryValue.EVENT,
+        ContentPostCategoryValue.ALUMNI,
+      ],
+      membersOnly: true,
+      status: CreateContentPostStatus.PUBLISHED,
+      eventStartAt: new Date('2026-09-10T10:30:00.000Z'),
+      eventEndAt: new Date('2026-09-10T12:00:00.000Z'),
+      showOnCalendar: true,
+      images: [],
+      author: {
+        userId: 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53',
+        name: 'Sulynn Kim',
+      },
+      publishedAt: new Date('2026-08-06T00:00:00.000Z'),
+      createdAt: new Date('2026-08-06T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-06T01:00:00.000Z'),
+    };
+
+    getPostDetailMock.mockResolvedValue(expected);
+
+    await expect(controller.getPostDetail(postId)).resolves.toEqual(expected);
+
+    expect(getPostDetailMock).toHaveBeenCalledTimes(1);
+
+    expect(getPostDetailMock).toHaveBeenCalledWith(postId);
   });
 });
