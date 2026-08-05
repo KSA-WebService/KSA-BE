@@ -1,4 +1,13 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { AdminGuard } from '../../auth/admin.guard';
 import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
@@ -31,5 +40,19 @@ export class FilesController {
     @Req() request: AuthenticatedRequest,
   ) {
     return this.filesService.completeFileUpload(dto.fileId, request.user.id);
+  }
+
+  @Delete(':fileId')
+  async deleteFile(
+    @Param(
+      'fileId',
+      new ParseUUIDPipe({
+        version: '4',
+      }),
+    )
+    fileId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.filesService.deleteFile(fileId, request.user.id);
   }
 }

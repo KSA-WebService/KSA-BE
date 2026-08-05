@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -67,6 +68,36 @@ const COMPLETE_FILE_SELECT = {
 type CompleteFileRecord = Prisma.FileGetPayload<{
   select: typeof COMPLETE_FILE_SELECT;
 }>;
+
+const DELETE_FILE_SELECT = {
+  id: true,
+  originalName: true,
+  storagePath: true,
+  contentType: true,
+  fileSize: true,
+  purpose: true,
+  status: true,
+  completedAt: true,
+  deletedAt: true,
+  _count: {
+    select: {
+      products: true,
+      contentImages: true,
+      clubImages: true,
+    },
+  },
+} satisfies Prisma.FileSelect;
+
+type DeleteFileRecord = Prisma.FileGetPayload<{
+  select: typeof DELETE_FILE_SELECT;
+}>;
+
+type FileReferenceType = 'PRODUCT' | 'CONTENT_POST' | 'CLUB';
+
+type FileReference = {
+  type: FileReferenceType;
+  count: number;
+};
 
 @Injectable()
 export class FilesService {
@@ -289,6 +320,134 @@ export class FilesService {
     });
   }
 
+  async deleteFile(fileId: string, adminId: string) {
+    const file = await this.prisma.file.findUnique({
+      where: {
+        id: fileId,
+      },
+      select: DELETE_FILE_SELECT,
+    });
+
+    if (!file) {
+      throw new NotFoundException({
+        errorCode: 'F404_FILE_NOT_FOUND',
+        message: 'File not found',
+      });
+    }
+
+    if (this.isFileDeleted(file)) {
+      return this.toFileDeletionResponse(file);
+    }
+
+    this.ensureFileNotInUse(file);
+
+    try {
+      await this.supabaseAdminService.deleteStoredImage(file.storagePath);
+    } catch {
+      throw new InternalServerErrorException({
+        errorCode: 'F500_FILE_DELETE_FAILED',
+        message: 'Failed to delete the file from Storage',
+      });
+    }
+
+    const deletedAt = new Date();
+
+    try {
+      return await this.prisma.$transaction(async (transaction) => {
+        const currentFile = await transaction.file.findUnique({
+          where: {
+            id: file.id,
+          },
+          select: DELETE_FILE_SELECT,
+        });
+
+        if (!currentFile) {
+          throw new NotFoundException({
+            errorCode: 'F404_FILE_NOT_FOUND',
+            message: 'File not found',
+          });
+        }
+
+        if (this.isFileDeleted(currentFile)) {
+          return this.toFileDeletionResponse(currentFile);
+        }
+
+        this.ensureFileNotInUse(currentFile);
+
+        const updateResult = await transaction.file.updateMany({
+          where: {
+            id: currentFile.id,
+            status: {
+              in: [FileStatus.PENDING, FileStatus.COMPLETED],
+            },
+            deletedAt: null,
+          },
+          data: {
+            status: FileStatus.DELETED,
+            deletedAt,
+          },
+        });
+
+        if (updateResult.count === 0) {
+          const latestFile = await transaction.file.findUnique({
+            where: {
+              id: currentFile.id,
+            },
+            select: DELETE_FILE_SELECT,
+          });
+
+          if (!latestFile) {
+            throw new NotFoundException({
+              errorCode: 'F404_FILE_NOT_FOUND',
+              message: 'File not found',
+            });
+          }
+
+          if (this.isFileDeleted(latestFile)) {
+            return this.toFileDeletionResponse(latestFile);
+          }
+
+          throw new InternalServerErrorException({
+            errorCode: 'F500_FILE_DELETE_FAILED',
+            message: 'Failed to delete the file',
+          });
+        }
+
+        await transaction.adminActionLog.create({
+          data: {
+            adminId,
+            actionType: AdminActionType.FILE,
+            targetId: currentFile.id,
+            action: AdminAction.DELETE_FILE,
+            metadata: {
+              originalName: currentFile.originalName,
+              storagePath: currentFile.storagePath,
+              contentType: currentFile.contentType,
+              fileSize: currentFile.fileSize,
+              purpose: currentFile.purpose,
+              previousStatus: currentFile.status,
+            },
+          },
+        });
+
+        return {
+          fileId: currentFile.id,
+          status: FileStatus.DELETED,
+          deletedAt,
+        };
+      });
+    } catch (error: unknown) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException({
+        errorCode: 'F500_FILE_DELETE_FAILED',
+        message: 'Failed to delete the file',
+      });
+    }
+  }
+
   private validateFileSize(fileSize: number): void {
     if (fileSize <= 0) {
       throw new BadRequestException({
@@ -370,6 +529,62 @@ export class FilesService {
       status: file.status,
       createdAt: file.createdAt,
       completedAt: file.completedAt,
+    };
+  }
+
+  private ensureFileNotInUse(file: DeleteFileRecord): void {
+    const references = this.getFileReferences(file);
+
+    if (references.length > 0) {
+      throw new ConflictException({
+        errorCode: 'F409_FILE_IN_USE',
+        message: 'Files currently in use cannot be deleted',
+        data: {
+          references,
+        },
+      });
+    }
+  }
+
+  private getFileReferences(file: DeleteFileRecord): FileReference[] {
+    const references: FileReference[] = [];
+
+    if (file._count.products > 0) {
+      references.push({
+        type: 'PRODUCT',
+        count: file._count.products,
+      });
+    }
+
+    if (file._count.contentImages > 0) {
+      references.push({
+        type: 'CONTENT_POST',
+        count: file._count.contentImages,
+      });
+    }
+
+    if (file._count.clubImages > 0) {
+      references.push({
+        type: 'CLUB',
+        count: file._count.clubImages,
+      });
+    }
+
+    return references;
+  }
+
+  private isFileDeleted(file: {
+    status: FileStatus;
+    deletedAt: Date | null;
+  }): boolean {
+    return file.status === FileStatus.DELETED || file.deletedAt !== null;
+  }
+
+  private toFileDeletionResponse(file: { id: string; deletedAt: Date | null }) {
+    return {
+      fileId: file.id,
+      status: FileStatus.DELETED,
+      deletedAt: file.deletedAt,
     };
   }
 }
