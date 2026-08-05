@@ -12,6 +12,8 @@ type StoredImageInfo = {
   contentType: string;
 };
 
+type StoredImageDeletionResult = 'DELETED' | 'NOT_FOUND';
+
 @Injectable()
 export class SupabaseAdminService {
   private readonly client: ReturnType<typeof createClient>;
@@ -132,6 +134,40 @@ export class SupabaseAdminService {
       size,
       contentType,
     };
+  }
+
+  async deleteStoredImage(
+    storagePath: string,
+  ): Promise<StoredImageDeletionResult> {
+    const { error: infoError } = await this.client.storage
+      .from(this.storageBucket)
+      .info(storagePath);
+
+    if (infoError) {
+      if (this.isStorageNotFoundError(infoError)) {
+        return 'NOT_FOUND';
+      }
+
+      throw infoError;
+    }
+
+    const { data, error } = await this.client.storage
+      .from(this.storageBucket)
+      .remove([storagePath]);
+
+    if (error) {
+      if (this.isStorageNotFoundError(error)) {
+        return 'NOT_FOUND';
+      }
+
+      throw error;
+    }
+
+    if (!data || data.length === 0) {
+      return 'NOT_FOUND';
+    }
+
+    return 'DELETED';
   }
 
   private isStorageNotFoundError(error: unknown): boolean {

@@ -19,6 +19,7 @@ describe('FilesController', () => {
   const filesServiceMock = {
     createImageUploadUrl: jest.fn(),
     completeFileUpload: jest.fn(),
+    deleteFile: jest.fn(),
   };
 
   const guardMock = {
@@ -133,5 +134,33 @@ describe('FilesController', () => {
       fileId,
       adminId,
     );
+  });
+
+  it('should pass the file ID and admin ID to the deletion service', async () => {
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+    const fileId = '9f3a2b1c-3333-4d22-8e20-def987654321';
+
+    const deletedAt = new Date('2026-08-04T05:00:00.000Z');
+
+    const expected = {
+      fileId,
+      status: FileStatus.DELETED,
+      deletedAt,
+    };
+
+    filesServiceMock.deleteFile.mockResolvedValue(expected);
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    } as AuthenticatedRequest;
+
+    await expect(controller.deleteFile(fileId, request)).resolves.toEqual(
+      expected,
+    );
+
+    expect(filesServiceMock.deleteFile).toHaveBeenCalledWith(fileId, adminId);
   });
 });

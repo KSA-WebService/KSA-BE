@@ -69,6 +69,7 @@ describe('FilesService', () => {
     createSignedImageUploadUrl: jest.fn(),
     getPublicImageUrl: jest.fn(),
     getStoredImageInfo: jest.fn(),
+    deleteStoredImage: jest.fn(),
   };
 
   const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
@@ -104,6 +105,30 @@ describe('FilesService', () => {
     ...pendingFile,
     status: FileStatus.COMPLETED,
     completedAt,
+  };
+
+  const deletedAt = new Date('2026-08-04T05:00:00.000Z');
+
+  const noFileReferences = {
+    products: 0,
+    contentImages: 0,
+    clubImages: 0,
+  };
+
+  const pendingDeleteFile = {
+    ...pendingFile,
+    _count: noFileReferences,
+  };
+
+  const completedDeleteFile = {
+    ...completedFile,
+    _count: noFileReferences,
+  };
+
+  const deletedFile = {
+    ...completedDeleteFile,
+    status: FileStatus.DELETED,
+    deletedAt,
   };
 
   beforeEach(async () => {
@@ -543,5 +568,251 @@ describe('FilesService', () => {
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
 
     expect(transactionFileFindUniqueOrThrowMock).not.toHaveBeenCalled();
+  });
+
+  it('should delete an unreferenced completed file and create an audit log', async () => {
+    fileFindUniqueMock.mockResolvedValue(completedDeleteFile);
+
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('DELETED');
+
+    transactionFileFindUniqueMock.mockResolvedValue(completedDeleteFile);
+
+    transactionFileUpdateManyMock.mockResolvedValue({
+      count: 1,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
+      fileId,
+      status: FileStatus.DELETED,
+      deletedAt,
+    });
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledWith(
+      storagePath,
+    );
+
+    expect(transactionFileUpdateManyMock).toHaveBeenCalledWith({
+      where: {
+        id: fileId,
+        status: {
+          in: [FileStatus.PENDING, FileStatus.COMPLETED],
+        },
+        deletedAt: null,
+      },
+      data: {
+        status: FileStatus.DELETED,
+        deletedAt,
+      },
+    });
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        adminId,
+        actionType: AdminActionType.FILE,
+        targetId: fileId,
+        action: AdminAction.DELETE_FILE,
+        metadata: {
+          originalName: completedDeleteFile.originalName,
+          storagePath: completedDeleteFile.storagePath,
+          contentType: completedDeleteFile.contentType,
+          fileSize: completedDeleteFile.fileSize,
+          purpose: completedDeleteFile.purpose,
+          previousStatus: FileStatus.COMPLETED,
+        },
+      },
+    });
+  });
+
+  it('should soft-delete a pending file when the Storage object is already missing', async () => {
+    fileFindUniqueMock.mockResolvedValue(pendingDeleteFile);
+
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('NOT_FOUND');
+
+    transactionFileFindUniqueMock.mockResolvedValue(pendingDeleteFile);
+
+    transactionFileUpdateManyMock.mockResolvedValue({
+      count: 1,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
+      fileId,
+      status: FileStatus.DELETED,
+      deletedAt,
+    });
+
+    expect(transactionFileUpdateManyMock).toHaveBeenCalledWith({
+      where: {
+        id: fileId,
+        status: {
+          in: [FileStatus.PENDING, FileStatus.COMPLETED],
+        },
+        deletedAt: null,
+      },
+      data: {
+        status: FileStatus.DELETED,
+        deletedAt,
+      },
+    });
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        adminId,
+        actionType: AdminActionType.FILE,
+        targetId: fileId,
+        action: AdminAction.DELETE_FILE,
+        metadata: {
+          originalName: pendingDeleteFile.originalName,
+          storagePath: pendingDeleteFile.storagePath,
+          contentType: pendingDeleteFile.contentType,
+          fileSize: pendingDeleteFile.fileSize,
+          purpose: pendingDeleteFile.purpose,
+          previousStatus: FileStatus.PENDING,
+        },
+      },
+    });
+  });
+
+  it('should reject a file that does not exist', async () => {
+    fileFindUniqueMock.mockResolvedValue(null);
+
+    await expect(service.deleteFile(fileId, adminId)).rejects.toMatchObject({
+      status: 404,
+      response: {
+        errorCode: 'F404_FILE_NOT_FOUND',
+      },
+    });
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should return an already deleted file without deleting Storage or creating another log', async () => {
+    fileFindUniqueMock.mockResolvedValue(deletedFile);
+
+    await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
+      fileId,
+      status: FileStatus.DELETED,
+      deletedAt,
+    });
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
+
+    expect(transactionMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a file referenced by other entities', async () => {
+    fileFindUniqueMock.mockResolvedValue({
+      ...completedDeleteFile,
+      _count: {
+        products: 1,
+        contentImages: 2,
+        clubImages: 1,
+      },
+    });
+
+    await expect(service.deleteFile(fileId, adminId)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_IN_USE',
+        data: {
+          references: [
+            {
+              type: 'PRODUCT',
+              count: 1,
+            },
+            {
+              type: 'CONTENT_POST',
+              count: 2,
+            },
+            {
+              type: 'CLUB',
+              count: 1,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should not change the database when Storage deletion fails', async () => {
+    fileFindUniqueMock.mockResolvedValue(completedDeleteFile);
+
+    supabaseAdminServiceMock.deleteStoredImage.mockRejectedValue(
+      new Error('Storage failure'),
+    );
+
+    await expect(service.deleteFile(fileId, adminId)).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'F500_FILE_DELETE_FAILED',
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject deletion when a reference exists during the transaction recheck', async () => {
+    fileFindUniqueMock.mockResolvedValue(completedDeleteFile);
+
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('DELETED');
+
+    transactionFileFindUniqueMock.mockResolvedValue({
+      ...completedDeleteFile,
+      _count: {
+        products: 1,
+        contentImages: 0,
+        clubImages: 0,
+      },
+    });
+
+    await expect(service.deleteFile(fileId, adminId)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_IN_USE',
+      },
+    });
+
+    expect(transactionFileUpdateManyMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should return the deleted result when another request deleted the file first', async () => {
+    fileFindUniqueMock.mockResolvedValue(completedDeleteFile);
+
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('DELETED');
+
+    transactionFileFindUniqueMock
+      .mockResolvedValueOnce(completedDeleteFile)
+      .mockResolvedValueOnce(deletedFile);
+
+    transactionFileUpdateManyMock.mockResolvedValue({
+      count: 0,
+    });
+
+    await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
+      fileId,
+      status: FileStatus.DELETED,
+      deletedAt,
+    });
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
   });
 });
