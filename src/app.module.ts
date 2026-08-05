@@ -13,6 +13,7 @@ import { AdminUsersModule } from './admin/users/admin-users.module';
 import { TokenEventsModule } from './admin/token-events/token-events.module';
 import { TokenBalancesModule } from './admin/token-balances/token-balances.module';
 import { FilesModule } from './admin/files/files.module';
+import { PostsModule } from './admin/posts/posts.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { FilesModule } from './admin/files/files.module';
     TokenEventsModule,
     TokenBalancesModule,
     FilesModule,
+    PostsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
