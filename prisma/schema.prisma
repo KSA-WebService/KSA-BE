@@ -57,6 +57,13 @@ enum PublicationStatus {
   @@map("publication_status")
 }
 
+enum ProductType {
+  TICKET      @map("ticket")
+  MERCHANDISE @map("merchandise")
+
+  @@map("product_type")
+}
+
 enum ContentPostCategoryType {
   EVENT        @map("event")
   CAREER       @map("career")
@@ -260,11 +267,14 @@ model File {
 model Product {
   id                String            @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
   name              String            @map("name") @db.VarChar(100)
+  productType       ProductType       @map("product_type")
   description       String?           @map("description") @db.Text
-  price             Int               @map("price")
+  tokenPrice        Int               @map("price")
   stockQuantity     Int               @default(0) @map("stock_quantity")
+  isOrderable       Boolean           @default(true) @map("is_orderable")
   imageFileId       String?           @map("image_file_id") @db.Uuid
   publicationStatus PublicationStatus @default(DRAFT) @map("publication_status")
+  publishedAt       DateTime?         @map("published_at")
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at")
   deletedAt         DateTime?         @map("deleted_at")
@@ -274,7 +284,8 @@ model Product {
   orders Order[]
 
   @@index([imageFileId])
-  @@index([publicationStatus])
+  @@index([productType])
+  @@index([publicationStatus, deletedAt, publishedAt])
   @@map("products")
 }
 
