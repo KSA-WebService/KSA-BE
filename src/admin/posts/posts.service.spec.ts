@@ -19,6 +19,7 @@ import {
   AdminPostSortValue,
   GetAdminPostListQueryDto,
 } from './dto/get-admin-post-list-query.dto';
+import { UpdateContentPostDto } from './dto/update-content-post.dto';
 
 describe('PostsService', () => {
   const fixedNow = new Date('2026-08-06T00:00:00.000Z');
@@ -42,13 +43,29 @@ describe('PostsService', () => {
   const contentPostFindFirstMock = jest.fn();
   const contentPostFindManyMock = jest.fn();
   const contentPostCountMock = jest.fn();
+  const transactionContentPostFindFirstMock = jest.fn();
+  const contentPostUpdateMock = jest.fn();
+  const contentPostCategoryDeleteManyMock = jest.fn();
+  const contentPostCategoryCreateManyMock = jest.fn();
+  const contentImageDeleteManyMock = jest.fn();
+  const contentImageCreateManyMock = jest.fn();
 
   const transactionClientMock = {
+    contentPost: {
+      create: contentPostCreateMock,
+      findFirst: transactionContentPostFindFirstMock,
+      update: contentPostUpdateMock,
+    },
     file: {
       findMany: fileFindManyMock,
     },
-    contentPost: {
-      create: contentPostCreateMock,
+    contentPostCategory: {
+      deleteMany: contentPostCategoryDeleteManyMock,
+      createMany: contentPostCategoryCreateManyMock,
+    },
+    contentImage: {
+      deleteMany: contentImageDeleteManyMock,
+      createMany: contentImageCreateManyMock,
     },
     adminActionLog: {
       create: adminActionLogCreateMock,
@@ -71,7 +88,7 @@ describe('PostsService', () => {
   const service = new PostsService(prismaMock as unknown as PrismaService);
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     jest.useFakeTimers();
     jest.setSystemTime(fixedNow);
 
@@ -628,8 +645,9 @@ describe('PostsService', () => {
       createdAt: fixedNow,
     });
 
-    adminActionLogCreateMock.mockRejectedValue(new Error('Audit log failure'));
-
+    adminActionLogCreateMock.mockRejectedValueOnce(
+      new Error('Audit log failure'),
+    );
     await expect(service.createPost(dto, adminId)).rejects.toMatchObject({
       status: 500,
       response: {
@@ -1177,5 +1195,383 @@ describe('PostsService', () => {
     });
 
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject an empty update request', async () => {
+    await expect(service.updatePost(postId, {}, adminId)).rejects.toMatchObject(
+      {
+        status: 400,
+        response: {
+          errorCode: 'C400_CONTENT_POST_UPDATE_REQUIRED',
+          message: 'At least one field must be provided',
+        },
+      },
+    );
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should update only the provided fields', async () => {
+    const updatedAt = new Date('2026-08-06T15:00:00.000Z');
+
+    transactionContentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.DRAFT,
+      publishedAt: null,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+    });
+
+    contentPostUpdateMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.DRAFT,
+      publishedAt: null,
+      updatedAt,
+    });
+
+    const dto: UpdateContentPostDto = {
+      title: 'Updated Orientation Day',
+    };
+
+    await expect(service.updatePost(postId, dto, adminId)).resolves.toEqual({
+      postId,
+      status: 'draft',
+      publishedAt: null,
+      updatedAt,
+    });
+
+    expect(contentPostUpdateMock).toHaveBeenCalledWith({
+      where: {
+        id: postId,
+      },
+      data: {
+        title: 'Updated Orientation Day',
+      },
+      select: {
+        id: true,
+        status: true,
+        publishedAt: true,
+        updatedAt: true,
+      },
+    });
+
+    expect(contentPostCategoryDeleteManyMock).not.toHaveBeenCalled();
+
+    expect(contentImageDeleteManyMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        adminId,
+        action: AdminAction.UPDATE_CONTENT_POST,
+        actionType: AdminActionType.CONTENT,
+        targetId: postId,
+        metadata: {
+          updatedFields: ['title'],
+          status: PublicationStatus.DRAFT,
+        },
+      },
+    });
+  });
+
+  it('should set publishedAt when publishing a post for the first time', async () => {
+    transactionContentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.DRAFT,
+      publishedAt: null,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+    });
+
+    contentPostUpdateMock.mockImplementation(
+      ({
+        data,
+      }: {
+        data: {
+          publishedAt?: Date;
+        };
+      }) =>
+        Promise.resolve({
+          id: postId,
+          status: PublicationStatus.PUBLISHED,
+          publishedAt: data.publishedAt,
+          updatedAt: fixedNow,
+        }),
+    );
+
+    const result = await service.updatePost(
+      postId,
+      {
+        status: AdminContentPostStatusValue.PUBLISHED,
+      },
+      adminId,
+    );
+
+    expect(result.status).toBe('published');
+    expect(result.publishedAt).toBeInstanceOf(Date);
+
+    expect(contentPostUpdateMock).toHaveBeenCalledWith({
+      where: {
+        id: postId,
+      },
+      data: {
+        status: PublicationStatus.PUBLISHED,
+        publishedAt: fixedNow,
+      },
+      select: {
+        id: true,
+        status: true,
+        publishedAt: true,
+        updatedAt: true,
+      },
+    });
+  });
+
+  it('should preserve the original publishedAt after a post has already been published', async () => {
+    const originalPublishedAt = new Date('2026-08-01T00:00:00.000Z');
+
+    transactionContentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.HIDDEN,
+      publishedAt: originalPublishedAt,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+    });
+
+    contentPostUpdateMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.PUBLISHED,
+      publishedAt: originalPublishedAt,
+      updatedAt: fixedNow,
+    });
+
+    await service.updatePost(
+      postId,
+      {
+        status: AdminContentPostStatusValue.PUBLISHED,
+      },
+      adminId,
+    );
+
+    expect(contentPostUpdateMock).toHaveBeenCalledWith({
+      where: {
+        id: postId,
+      },
+      data: {
+        status: PublicationStatus.PUBLISHED,
+      },
+      select: {
+        id: true,
+        status: true,
+        publishedAt: true,
+        updatedAt: true,
+      },
+    });
+  });
+
+  it('should replace categories and images when their fields are provided', async () => {
+    transactionContentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.PUBLISHED,
+      publishedAt: fixedNow,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+    });
+
+    fileFindManyMock.mockResolvedValue([
+      {
+        id: fileId1,
+        status: FileStatus.COMPLETED,
+        purpose: FilePurpose.POST_IMAGE,
+        deletedAt: null,
+      },
+      {
+        id: fileId2,
+        status: FileStatus.COMPLETED,
+        purpose: FilePurpose.POST_IMAGE,
+        deletedAt: null,
+      },
+    ]);
+
+    contentPostUpdateMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.PUBLISHED,
+      publishedAt: fixedNow,
+      updatedAt: fixedNow,
+    });
+
+    await service.updatePost(
+      postId,
+      {
+        categories: [
+          ContentPostCategoryValue.EVENT,
+          ContentPostCategoryValue.ANNOUNCEMENT,
+        ],
+        imageFileIds: [fileId2, fileId1],
+      },
+      adminId,
+    );
+
+    expect(contentPostCategoryDeleteManyMock).toHaveBeenCalledWith({
+      where: {
+        contentPostId: postId,
+      },
+    });
+
+    expect(contentPostCategoryCreateManyMock).toHaveBeenCalledWith({
+      data: [
+        {
+          contentPostId: postId,
+          category: ContentPostCategoryType.EVENT,
+        },
+        {
+          contentPostId: postId,
+          category: ContentPostCategoryType.ANNOUNCEMENT,
+        },
+      ],
+    });
+
+    expect(contentImageDeleteManyMock).toHaveBeenCalledWith({
+      where: {
+        contentPostId: postId,
+      },
+    });
+
+    expect(contentImageCreateManyMock).toHaveBeenCalledWith({
+      data: [
+        {
+          contentPostId: postId,
+          fileId: fileId2,
+          sortOrder: 1,
+        },
+        {
+          contentPostId: postId,
+          fileId: fileId1,
+          sortOrder: 2,
+        },
+      ],
+    });
+  });
+
+  it('should remove all image relationships when an empty image list is provided', async () => {
+    transactionContentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.DRAFT,
+      publishedAt: null,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+    });
+
+    fileFindManyMock.mockResolvedValue([]);
+
+    contentPostUpdateMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.DRAFT,
+      publishedAt: null,
+      updatedAt: fixedNow,
+    });
+
+    await service.updatePost(
+      postId,
+      {
+        imageFileIds: [],
+      },
+      adminId,
+    );
+
+    expect(contentImageDeleteManyMock).toHaveBeenCalledWith({
+      where: {
+        contentPostId: postId,
+      },
+    });
+
+    expect(contentImageCreateManyMock).not.toHaveBeenCalled();
+  });
+
+  it('should validate the final schedule state using existing and updated values', async () => {
+    transactionContentPostFindFirstMock.mockResolvedValue({
+      id: postId,
+      status: PublicationStatus.DRAFT,
+      publishedAt: null,
+      eventStartAt: new Date('2026-09-10T10:30:00.000Z'),
+      eventEndAt: new Date('2026-09-10T12:00:00.000Z'),
+      showOnCalendar: true,
+    });
+
+    await expect(
+      service.updatePost(
+        postId,
+        {
+          eventStartAt: null,
+        },
+        adminId,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: {
+        errorCode: 'C400_EVENT_START_REQUIRED',
+      },
+    });
+
+    expect(contentPostUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a missing or soft-deleted post', async () => {
+    transactionContentPostFindFirstMock.mockResolvedValue(null);
+
+    await expect(
+      service.updatePost(
+        postId,
+        {
+          title: 'Updated title',
+        },
+        adminId,
+      ),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: {
+        errorCode: 'C404_CONTENT_POST_NOT_FOUND',
+        message: 'Content post not found',
+      },
+    });
+
+    expect(transactionContentPostFindFirstMock).toHaveBeenCalledWith({
+      where: {
+        id: postId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        status: true,
+        publishedAt: true,
+        eventStartAt: true,
+        eventEndAt: true,
+        showOnCalendar: true,
+      },
+    });
+  });
+
+  it('should return an update failure when the transaction fails unexpectedly', async () => {
+    transactionMock.mockRejectedValueOnce(new Error('Database failure'));
+
+    await expect(
+      service.updatePost(
+        postId,
+        {
+          title: 'Updated title',
+        },
+        adminId,
+      ),
+    ).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'C500_CONTENT_POST_UPDATE_FAILED',
+        message: 'Failed to update the content post',
+      },
+    });
   });
 });

@@ -1,22 +1,33 @@
+import 'reflect-metadata';
+
 import {
   ContentPostCategoryValue,
   CreateContentPostDto,
   CreateContentPostStatus,
 } from './dto/create-content-post.dto';
-import { PostsController } from './posts.controller';
-import { PostsService } from './posts.service';
 import {
   AdminPostSortValue,
   GetAdminPostListQueryDto,
 } from './dto/get-admin-post-list-query.dto';
+import { UpdateContentPostDto } from './dto/update-content-post.dto';
+import { PostsController } from './posts.controller';
+import { PostsService } from './posts.service';
 
 describe('PostsController', () => {
+  const postId = '8bc95b8f-cbd1-45ed-b2ef-f80dd06e92db';
+
+  const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+  const fixedNow = new Date('2026-08-06T15:00:00.000Z');
+
   const createPostMock = jest.fn();
+  const updatePostMock = jest.fn();
   const getPostListMock = jest.fn();
   const getPostDetailMock = jest.fn();
 
   const postsServiceMock = {
     createPost: createPostMock,
+    updatePost: updatePostMock,
     getPostList: getPostListMock,
     getPostDetail: getPostDetailMock,
   };
@@ -30,8 +41,6 @@ describe('PostsController', () => {
   });
 
   it('should pass the post DTO and administrator ID to the service', async () => {
-    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
-
     const dto: CreateContentPostDto = {
       title: 'Members-only Career Talk',
       content: '📌 Career talk details\n• Venue: HKUST',
@@ -49,7 +58,7 @@ describe('PostsController', () => {
     };
 
     const expected = {
-      postId: '8bc95b8f-cbd1-45ed-b2ef-f80dd06e92db',
+      postId,
       title: dto.title,
       categories: dto.categories,
       membersOnly: true,
@@ -87,8 +96,6 @@ describe('PostsController', () => {
   });
 
   it('should pass a draft post without optional fields to the service', async () => {
-    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
-
     const dto: CreateContentPostDto = {
       title: 'Orientation Day',
       categories: [ContentPostCategoryValue.EVENT],
@@ -96,7 +103,7 @@ describe('PostsController', () => {
     };
 
     const expected = {
-      postId: '8bc95b8f-cbd1-45ed-b2ef-f80dd06e92db',
+      postId,
       title: dto.title,
       categories: dto.categories,
       membersOnly: false,
@@ -125,8 +132,6 @@ describe('PostsController', () => {
   });
 
   it('should pass the post ID to the detail service', async () => {
-    const postId = '8bc95b8f-cbd1-45ed-b2ef-f80dd06e92db';
-
     const expected = {
       postId,
       title: 'Members-only Career Talk',
@@ -143,7 +148,7 @@ describe('PostsController', () => {
       showOnCalendar: true,
       images: [],
       author: {
-        userId: 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53',
+        userId: adminId,
         name: 'Sulynn Kim',
       },
       publishedAt: new Date('2026-08-06T00:00:00.000Z'),
@@ -183,5 +188,34 @@ describe('PostsController', () => {
     expect(getPostListMock).toHaveBeenCalledTimes(1);
 
     expect(getPostListMock).toHaveBeenCalledWith(query);
+  });
+
+  it('should pass the post ID, update DTO, and administrator ID to the service', async () => {
+    const dto: UpdateContentPostDto = {
+      title: 'Updated Orientation Day',
+    };
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    };
+
+    const expected = {
+      postId,
+      status: 'draft',
+      publishedAt: null,
+      updatedAt: fixedNow,
+    };
+
+    updatePostMock.mockResolvedValue(expected);
+
+    await expect(controller.updatePost(postId, dto, request)).resolves.toEqual(
+      expected,
+    );
+
+    expect(updatePostMock).toHaveBeenCalledTimes(1);
+
+    expect(updatePostMock).toHaveBeenCalledWith(postId, dto, adminId);
   });
 });
