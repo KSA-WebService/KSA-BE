@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
 import { AdminGuard } from '../../auth/admin.guard';
 import { CreateContentPostDto } from './dto/create-content-post.dto';
 import { PostsService } from './posts.service';
+import { GetAdminPostListQueryDto } from './dto/get-admin-post-list-query.dto';
 
 type AuthenticatedAdminRequest = {
   user: {
@@ -34,6 +36,11 @@ export class PostsController {
     @Req() request: AuthenticatedAdminRequest,
   ) {
     return this.postsService.createPost(dto, request.user.id);
+  }
+
+  @Get()
+  async getPostList(@Query() query: GetAdminPostListQueryDto) {
+    return this.postsService.getPostList(query);
   }
 
   @Get(':postId')
