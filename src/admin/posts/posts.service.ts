@@ -29,6 +29,8 @@ import {
   GetAdminPostListQueryDto,
 } from './dto/get-admin-post-list-query.dto';
 
+import { UpdateContentPostDto } from './dto/update-content-post.dto';
+
 const CATEGORY_MAP: Record<ContentPostCategoryValue, ContentPostCategoryType> =
   {
     [ContentPostCategoryValue.EVENT]: ContentPostCategoryType.EVENT,
@@ -303,6 +305,251 @@ export class PostsService {
       throw new InternalServerErrorException({
         errorCode: 'C500_CONTENT_POST_CREATE_FAILED',
         message: 'Failed to create the content post',
+      });
+    }
+  }
+  async updatePost(postId: string, dto: UpdateContentPostDto, adminId: string) {
+    const updatedFields = Object.entries(dto)
+      .filter(([, value]) => value !== undefined)
+      .map(([key]) => key);
+
+    if (updatedFields.length === 0) {
+      throw new BadRequestException({
+        errorCode: 'C400_CONTENT_POST_UPDATE_REQUIRED',
+        message: 'At least one field must be provided',
+      });
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const existingPost = await tx.contentPost.findFirst({
+          where: {
+            id: postId,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            status: true,
+            publishedAt: true,
+            eventStartAt: true,
+            eventEndAt: true,
+            showOnCalendar: true,
+          },
+        });
+
+        if (!existingPost) {
+          throw new NotFoundException({
+            errorCode: 'C404_CONTENT_POST_NOT_FOUND',
+            message: 'Content post not found',
+          });
+        }
+
+        const finalEventStartAt =
+          dto.eventStartAt === undefined
+            ? existingPost.eventStartAt
+            : dto.eventStartAt === null
+              ? null
+              : new Date(dto.eventStartAt);
+
+        const finalEventEndAt =
+          dto.eventEndAt === undefined
+            ? existingPost.eventEndAt
+            : dto.eventEndAt === null
+              ? null
+              : new Date(dto.eventEndAt);
+
+        const finalShowOnCalendar =
+          dto.showOnCalendar === undefined
+            ? existingPost.showOnCalendar
+            : dto.showOnCalendar;
+
+        this.validateSchedule(
+          finalEventStartAt,
+          finalEventEndAt,
+          finalShowOnCalendar,
+        );
+
+        if (dto.imageFileIds !== undefined) {
+          const files = await tx.file.findMany({
+            where: {
+              id: {
+                in: dto.imageFileIds,
+              },
+            },
+            select: {
+              id: true,
+              status: true,
+              purpose: true,
+              deletedAt: true,
+            },
+          });
+
+          const fileMap = new Map(files.map((file) => [file.id, file]));
+
+          for (const fileId of dto.imageFileIds) {
+            const file = fileMap.get(fileId);
+
+            if (!file) {
+              throw new NotFoundException({
+                errorCode: 'F404_FILE_NOT_FOUND',
+                message: 'File not found',
+                data: {
+                  fileId,
+                },
+              });
+            }
+
+            if (
+              file.status !== FileStatus.COMPLETED ||
+              file.deletedAt !== null
+            ) {
+              throw new ConflictException({
+                errorCode: 'F409_FILE_NOT_AVAILABLE',
+                message: 'File is not available',
+                data: {
+                  fileId,
+                },
+              });
+            }
+
+            if (file.purpose !== FilePurpose.POST_IMAGE) {
+              throw new ConflictException({
+                errorCode: 'F409_FILE_PURPOSE_MISMATCH',
+                message: 'File purpose does not match',
+                data: {
+                  fileId,
+                },
+              });
+            }
+          }
+        }
+
+        const finalStatus =
+          dto.status === undefined
+            ? existingPost.status
+            : ADMIN_STATUS_FILTER_MAP[dto.status];
+
+        const shouldSetPublishedAt =
+          existingPost.publishedAt === null &&
+          finalStatus === PublicationStatus.PUBLISHED;
+
+        const updateData: Prisma.ContentPostUpdateInput = {
+          ...(dto.title !== undefined
+            ? {
+                title: dto.title,
+              }
+            : {}),
+          ...(dto.content !== undefined
+            ? {
+                content: dto.content,
+              }
+            : {}),
+          ...(dto.membersOnly !== undefined
+            ? {
+                membersOnly: dto.membersOnly,
+              }
+            : {}),
+          ...(dto.status !== undefined
+            ? {
+                status: ADMIN_STATUS_FILTER_MAP[dto.status],
+              }
+            : {}),
+          ...(dto.eventStartAt !== undefined
+            ? {
+                eventStartAt: finalEventStartAt,
+              }
+            : {}),
+          ...(dto.eventEndAt !== undefined
+            ? {
+                eventEndAt: finalEventEndAt,
+              }
+            : {}),
+          ...(dto.showOnCalendar !== undefined
+            ? {
+                showOnCalendar: dto.showOnCalendar,
+              }
+            : {}),
+          ...(shouldSetPublishedAt
+            ? {
+                publishedAt: new Date(),
+              }
+            : {}),
+        };
+
+        const updatedPost = await tx.contentPost.update({
+          where: {
+            id: postId,
+          },
+          data: updateData,
+          select: {
+            id: true,
+            status: true,
+            publishedAt: true,
+            updatedAt: true,
+          },
+        });
+
+        if (dto.categories !== undefined) {
+          await tx.contentPostCategory.deleteMany({
+            where: {
+              contentPostId: postId,
+            },
+          });
+
+          await tx.contentPostCategory.createMany({
+            data: dto.categories.map((category) => ({
+              contentPostId: postId,
+              category: CATEGORY_MAP[category],
+            })),
+          });
+        }
+
+        if (dto.imageFileIds !== undefined) {
+          await tx.contentImage.deleteMany({
+            where: {
+              contentPostId: postId,
+            },
+          });
+
+          if (dto.imageFileIds.length > 0) {
+            await tx.contentImage.createMany({
+              data: dto.imageFileIds.map((fileId, index) => ({
+                contentPostId: postId,
+                fileId,
+                sortOrder: index + 1,
+              })),
+            });
+          }
+        }
+
+        await tx.adminActionLog.create({
+          data: {
+            adminId,
+            action: AdminAction.UPDATE_CONTENT_POST,
+            actionType: AdminActionType.CONTENT,
+            targetId: postId,
+            metadata: {
+              updatedFields,
+              status: updatedPost.status,
+            },
+          },
+        });
+
+        return {
+          postId: updatedPost.id,
+          status: STATUS_VALUE_MAP[updatedPost.status],
+          publishedAt: updatedPost.publishedAt,
+          updatedAt: updatedPost.updatedAt,
+        };
+      });
+    } catch (error: unknown) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException({
+        errorCode: 'C500_CONTENT_POST_UPDATE_FAILED',
+        message: 'Failed to update the content post',
       });
     }
   }

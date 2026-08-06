@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Patch,
   Query,
   Req,
   UseGuards,
@@ -17,6 +18,7 @@ import { AdminGuard } from '../../auth/admin.guard';
 import { CreateContentPostDto } from './dto/create-content-post.dto';
 import { PostsService } from './posts.service';
 import { GetAdminPostListQueryDto } from './dto/get-admin-post-list-query.dto';
+import { UpdateContentPostDto } from './dto/update-content-post.dto';
 
 type AuthenticatedAdminRequest = {
   user: {
@@ -36,6 +38,16 @@ export class PostsController {
     @Req() request: AuthenticatedAdminRequest,
   ) {
     return this.postsService.createPost(dto, request.user.id);
+  }
+
+  @Patch(':postId')
+  async updatePost(
+    @Param('postId', new ParseUUIDPipe({ version: '4' }))
+    postId: string,
+    @Body() dto: UpdateContentPostDto,
+    @Req() request: AuthenticatedAdminRequest,
+  ) {
+    return this.postsService.updatePost(postId, dto, request.user.id);
   }
 
   @Get()
