@@ -1,4 +1,8 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   ContentPostCategoryType,
   Prisma,
@@ -65,6 +69,39 @@ const PUBLIC_POST_LIST_SELECT = {
     take: 1,
     select: {
       fileId: true,
+      file: {
+        select: {
+          fileUrl: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.ContentPostSelect;
+
+const PUBLIC_POST_DETAIL_SELECT = {
+  id: true,
+  title: true,
+  content: true,
+  membersOnly: true,
+  eventStartAt: true,
+  eventEndAt: true,
+  publishedAt: true,
+  updatedAt: true,
+  categories: {
+    orderBy: {
+      category: 'asc',
+    },
+    select: {
+      category: true,
+    },
+  },
+  images: {
+    orderBy: {
+      sortOrder: 'asc',
+    },
+    select: {
+      fileId: true,
+      sortOrder: true,
       file: {
         select: {
           fileUrl: true,
@@ -167,6 +204,54 @@ export class PublicPostsService {
       throw new InternalServerErrorException({
         errorCode: 'C500_CONTENT_POST_LIST_FETCH_FAILED',
         message: 'Failed to retrieve the content post list',
+      });
+    }
+  }
+
+  async getPostDetail(postId: string) {
+    try {
+      const post = await this.prisma.contentPost.findFirst({
+        where: {
+          id: postId,
+          status: PublicationStatus.PUBLISHED,
+          deletedAt: null,
+        },
+        select: PUBLIC_POST_DETAIL_SELECT,
+      });
+
+      if (!post) {
+        throw new NotFoundException({
+          errorCode: 'C404_CONTENT_POST_NOT_FOUND',
+          message: 'Content post not found',
+        });
+      }
+
+      return {
+        postId: post.id,
+        title: post.title,
+        content: post.content,
+        categories: post.categories.map(
+          ({ category }) => CATEGORY_VALUE_MAP[category],
+        ),
+        membersOnly: post.membersOnly,
+        eventStartAt: post.eventStartAt,
+        eventEndAt: post.eventEndAt,
+        images: post.images.map(({ fileId, sortOrder, file }) => ({
+          fileId,
+          fileUrl: file.fileUrl,
+          sortOrder,
+        })),
+        publishedAt: post.publishedAt,
+        updatedAt: post.updatedAt,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException({
+        errorCode: 'C500_CONTENT_POST_FETCH_FAILED',
+        message: 'Failed to retrieve the content post',
       });
     }
   }
