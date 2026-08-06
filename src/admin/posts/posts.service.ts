@@ -23,6 +23,12 @@ import {
   CreateContentPostStatus,
 } from './dto/create-content-post.dto';
 
+import {
+  AdminContentPostStatusValue,
+  AdminPostSortValue,
+  GetAdminPostListQueryDto,
+} from './dto/get-admin-post-list-query.dto';
+
 const CATEGORY_MAP: Record<ContentPostCategoryValue, ContentPostCategoryType> =
   {
     [ContentPostCategoryValue.EVENT]: ContentPostCategoryType.EVENT,
@@ -59,6 +65,15 @@ const STATUS_VALUE_MAP: Record<PublicationStatus, ContentPostStatusValue> = {
   [PublicationStatus.HIDDEN]: 'hidden',
 };
 
+const ADMIN_STATUS_FILTER_MAP: Record<
+  AdminContentPostStatusValue,
+  PublicationStatus
+> = {
+  [AdminContentPostStatusValue.DRAFT]: PublicationStatus.DRAFT,
+  [AdminContentPostStatusValue.PUBLISHED]: PublicationStatus.PUBLISHED,
+  [AdminContentPostStatusValue.HIDDEN]: PublicationStatus.HIDDEN,
+};
+
 const POST_DETAIL_SELECT = {
   id: true,
   title: true,
@@ -93,6 +108,48 @@ const POST_DETAIL_SELECT = {
           fileUrl: true,
           contentType: true,
           fileSize: true,
+        },
+      },
+    },
+  },
+  author: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} satisfies Prisma.ContentPostSelect;
+
+const POST_LIST_SELECT = {
+  id: true,
+  title: true,
+  membersOnly: true,
+  status: true,
+  eventStartAt: true,
+  eventEndAt: true,
+  showOnCalendar: true,
+  publishedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  categories: {
+    orderBy: {
+      category: 'asc',
+    },
+    select: {
+      category: true,
+    },
+  },
+  images: {
+    orderBy: {
+      sortOrder: 'asc',
+    },
+    take: 1,
+    select: {
+      fileId: true,
+      file: {
+        select: {
+          originalName: true,
+          fileUrl: true,
         },
       },
     },
@@ -246,6 +303,101 @@ export class PostsService {
       throw new InternalServerErrorException({
         errorCode: 'C500_CONTENT_POST_CREATE_FAILED',
         message: 'Failed to create the content post',
+      });
+    }
+  }
+
+  async getPostList(query: GetAdminPostListQueryDto) {
+    const { keyword, category, status, page, size, sort } = query;
+
+    const normalizedKeyword = keyword?.trim() || undefined;
+
+    const where: Prisma.ContentPostWhereInput = {
+      deletedAt: null,
+      ...(normalizedKeyword
+        ? {
+            title: {
+              contains: normalizedKeyword,
+              mode: 'insensitive',
+            },
+          }
+        : {}),
+      ...(category
+        ? {
+            categories: {
+              some: {
+                category: CATEGORY_MAP[category],
+              },
+            },
+          }
+        : {}),
+      ...(status
+        ? {
+            status: ADMIN_STATUS_FILTER_MAP[status],
+          }
+        : {}),
+    };
+
+    try {
+      const [posts, totalCount] = await this.prisma.$transaction([
+        this.prisma.contentPost.findMany({
+          where,
+          skip: (page - 1) * size,
+          take: size,
+          orderBy: {
+            createdAt: sort === AdminPostSortValue.OLDEST ? 'asc' : 'desc',
+          },
+          select: POST_LIST_SELECT,
+        }),
+        this.prisma.contentPost.count({
+          where,
+        }),
+      ]);
+
+      return {
+        posts: posts.map((post) => {
+          const representativeImage = post.images[0];
+
+          return {
+            postId: post.id,
+            title: post.title,
+            categories: post.categories.map(
+              ({ category: postCategory }) => CATEGORY_VALUE_MAP[postCategory],
+            ),
+            membersOnly: post.membersOnly,
+            status: STATUS_VALUE_MAP[post.status],
+            eventStartAt: post.eventStartAt,
+            eventEndAt: post.eventEndAt,
+            showOnCalendar: post.showOnCalendar,
+            representativeImage: representativeImage
+              ? {
+                  fileId: representativeImage.fileId,
+                  originalName: representativeImage.file.originalName,
+                  fileUrl: representativeImage.file.fileUrl,
+                }
+              : null,
+            author: {
+              userId: post.author.id,
+              name: post.author.name,
+            },
+            publishedAt: post.publishedAt,
+            createdAt: post.createdAt,
+            updatedAt: post.updatedAt,
+          };
+        }),
+        page,
+        size,
+        totalCount,
+        totalPages: Math.ceil(totalCount / size),
+      };
+    } catch (error: unknown) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException({
+        errorCode: 'C500_CONTENT_POST_LIST_FETCH_FAILED',
+        message: 'Failed to retrieve the content post list',
       });
     }
   }

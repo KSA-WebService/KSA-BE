@@ -14,6 +14,11 @@ import {
   CreateContentPostStatus,
 } from './dto/create-content-post.dto';
 import { PostsService } from './posts.service';
+import {
+  AdminContentPostStatusValue,
+  AdminPostSortValue,
+  GetAdminPostListQueryDto,
+} from './dto/get-admin-post-list-query.dto';
 
 describe('PostsService', () => {
   const fixedNow = new Date('2026-08-06T00:00:00.000Z');
@@ -35,6 +40,8 @@ describe('PostsService', () => {
   const adminActionLogCreateMock = jest.fn();
   const transactionMock = jest.fn();
   const contentPostFindFirstMock = jest.fn();
+  const contentPostFindManyMock = jest.fn();
+  const contentPostCountMock = jest.fn();
 
   const transactionClientMock = {
     file: {
@@ -55,6 +62,8 @@ describe('PostsService', () => {
   const prismaMock = {
     $transaction: transactionMock,
     contentPost: {
+      findMany: contentPostFindManyMock,
+      count: contentPostCountMock,
       findFirst: contentPostFindFirstMock,
     },
   };
@@ -869,6 +878,303 @@ describe('PostsService', () => {
     });
 
     expect(transactionMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should retrieve a paginated post list with categories, representative image, and author', async () => {
+    const eventStartAt = new Date('2026-09-10T10:30:00.000Z');
+
+    const eventEndAt = new Date('2026-09-10T12:00:00.000Z');
+
+    const updatedAt = new Date('2026-08-06T02:00:00.000Z');
+
+    const posts = [
+      {
+        id: postId,
+        title: 'Orientation Day',
+        membersOnly: true,
+        status: PublicationStatus.PUBLISHED,
+        eventStartAt,
+        eventEndAt,
+        showOnCalendar: true,
+        publishedAt: fixedNow,
+        createdAt: fixedNow,
+        updatedAt,
+        categories: [
+          {
+            category: ContentPostCategoryType.ANNOUNCEMENT,
+          },
+          {
+            category: ContentPostCategoryType.EVENT,
+          },
+        ],
+        images: [
+          {
+            fileId: fileId1,
+            file: {
+              originalName: 'orientation-day.jpg',
+              fileUrl: 'https://example.com/orientation-day.jpg',
+            },
+          },
+        ],
+        author: {
+          id: adminId,
+          name: 'Sulynn Kim',
+        },
+      },
+    ];
+
+    contentPostFindManyMock.mockResolvedValue(posts);
+
+    contentPostCountMock.mockResolvedValue(1);
+
+    transactionMock.mockResolvedValueOnce([posts, 1]);
+
+    const query: GetAdminPostListQueryDto = {
+      page: 1,
+      size: 10,
+      sort: AdminPostSortValue.LATEST,
+    };
+
+    await expect(service.getPostList(query)).resolves.toEqual({
+      posts: [
+        {
+          postId,
+          title: 'Orientation Day',
+          categories: [
+            ContentPostCategoryValue.ANNOUNCEMENT,
+            ContentPostCategoryValue.EVENT,
+          ],
+          membersOnly: true,
+          status: CreateContentPostStatus.PUBLISHED,
+          eventStartAt,
+          eventEndAt,
+          showOnCalendar: true,
+          representativeImage: {
+            fileId: fileId1,
+            originalName: 'orientation-day.jpg',
+            fileUrl: 'https://example.com/orientation-day.jpg',
+          },
+          author: {
+            userId: adminId,
+            name: 'Sulynn Kim',
+          },
+          publishedAt: fixedNow,
+          createdAt: fixedNow,
+          updatedAt,
+        },
+      ],
+      page: 1,
+      size: 10,
+      totalCount: 1,
+      totalPages: 1,
+    });
+
+    expect(contentPostFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+        },
+        skip: 0,
+        take: 10,
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
+    );
+
+    expect(contentPostCountMock).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+      },
+    });
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should apply keyword, category, status, pagination, and oldest sorting filters', async () => {
+    contentPostFindManyMock.mockResolvedValue([]);
+
+    contentPostCountMock.mockResolvedValue(0);
+
+    transactionMock.mockResolvedValueOnce([[], 0]);
+
+    const query: GetAdminPostListQueryDto = {
+      keyword: '  Career  ',
+      category: ContentPostCategoryValue.EVENT,
+      status: AdminContentPostStatusValue.PUBLISHED,
+      page: 2,
+      size: 5,
+      sort: AdminPostSortValue.OLDEST,
+    };
+
+    await expect(service.getPostList(query)).resolves.toEqual({
+      posts: [],
+      page: 2,
+      size: 5,
+      totalCount: 0,
+      totalPages: 0,
+    });
+
+    const expectedWhere = {
+      deletedAt: null,
+      title: {
+        contains: 'Career',
+        mode: 'insensitive',
+      },
+      categories: {
+        some: {
+          category: ContentPostCategoryType.EVENT,
+        },
+      },
+      status: PublicationStatus.PUBLISHED,
+    };
+
+    expect(contentPostFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expectedWhere,
+        skip: 5,
+        take: 5,
+        orderBy: {
+          createdAt: 'asc',
+        },
+      }),
+    );
+
+    expect(contentPostCountMock).toHaveBeenCalledWith({
+      where: expectedWhere,
+    });
+  });
+
+  it('should return null when a post has no representative image', async () => {
+    const posts = [
+      {
+        id: postId,
+        title: 'Draft Announcement',
+        membersOnly: false,
+        status: PublicationStatus.DRAFT,
+        eventStartAt: null,
+        eventEndAt: null,
+        showOnCalendar: false,
+        publishedAt: null,
+        createdAt: fixedNow,
+        updatedAt: fixedNow,
+        categories: [
+          {
+            category: ContentPostCategoryType.ANNOUNCEMENT,
+          },
+        ],
+        images: [],
+        author: {
+          id: adminId,
+          name: 'Sulynn Kim',
+        },
+      },
+    ];
+
+    contentPostFindManyMock.mockResolvedValue(posts);
+
+    contentPostCountMock.mockResolvedValue(1);
+
+    transactionMock.mockResolvedValueOnce([posts, 1]);
+
+    const query: GetAdminPostListQueryDto = {
+      page: 1,
+      size: 10,
+      sort: AdminPostSortValue.LATEST,
+    };
+
+    const result = await service.getPostList(query);
+
+    expect(result.posts[0].representativeImage).toBeNull();
+
+    expect(result.posts[0]).toMatchObject({
+      status: CreateContentPostStatus.DRAFT,
+      publishedAt: null,
+      eventStartAt: null,
+      eventEndAt: null,
+    });
+  });
+
+  it('should map a hidden post status for the administrator list', async () => {
+    const posts = [
+      {
+        id: postId,
+        title: 'Hidden Post',
+        membersOnly: false,
+        status: PublicationStatus.HIDDEN,
+        eventStartAt: null,
+        eventEndAt: null,
+        showOnCalendar: false,
+        publishedAt: fixedNow,
+        createdAt: fixedNow,
+        updatedAt: fixedNow,
+        categories: [
+          {
+            category: ContentPostCategoryType.ANNOUNCEMENT,
+          },
+        ],
+        images: [],
+        author: {
+          id: adminId,
+          name: 'Sulynn Kim',
+        },
+      },
+    ];
+
+    contentPostFindManyMock.mockResolvedValue(posts);
+
+    contentPostCountMock.mockResolvedValue(1);
+
+    transactionMock.mockResolvedValueOnce([posts, 1]);
+
+    const result = await service.getPostList({
+      page: 1,
+      size: 10,
+      sort: AdminPostSortValue.LATEST,
+    });
+
+    expect(result.posts[0].status).toBe('hidden');
+  });
+
+  it('should calculate the total number of pages', async () => {
+    contentPostFindManyMock.mockResolvedValue([]);
+
+    contentPostCountMock.mockResolvedValue(21);
+
+    transactionMock.mockResolvedValueOnce([[], 21]);
+
+    const result = await service.getPostList({
+      page: 1,
+      size: 10,
+      sort: AdminPostSortValue.LATEST,
+    });
+
+    expect(result.totalCount).toBe(21);
+    expect(result.totalPages).toBe(3);
+  });
+
+  it('should return a list fetch error when the database transaction fails', async () => {
+    contentPostFindManyMock.mockResolvedValue([]);
+
+    contentPostCountMock.mockResolvedValue(0);
+
+    transactionMock.mockRejectedValueOnce(new Error('Database failure'));
+
+    await expect(
+      service.getPostList({
+        page: 1,
+        size: 10,
+        sort: AdminPostSortValue.LATEST,
+      }),
+    ).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'C500_CONTENT_POST_LIST_FETCH_FAILED',
+        message: 'Failed to retrieve the content post list',
+      },
+    });
 
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
   });

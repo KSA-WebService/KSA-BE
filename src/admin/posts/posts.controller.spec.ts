@@ -5,13 +5,19 @@ import {
 } from './dto/create-content-post.dto';
 import { PostsController } from './posts.controller';
 import { PostsService } from './posts.service';
+import {
+  AdminPostSortValue,
+  GetAdminPostListQueryDto,
+} from './dto/get-admin-post-list-query.dto';
 
 describe('PostsController', () => {
   const createPostMock = jest.fn();
+  const getPostListMock = jest.fn();
   const getPostDetailMock = jest.fn();
 
   const postsServiceMock = {
     createPost: createPostMock,
+    getPostList: getPostListMock,
     getPostDetail: getPostDetailMock,
   };
 
@@ -152,5 +158,30 @@ describe('PostsController', () => {
     expect(getPostDetailMock).toHaveBeenCalledTimes(1);
 
     expect(getPostDetailMock).toHaveBeenCalledWith(postId);
+  });
+
+  it('should pass the list query to the service', async () => {
+    const query: GetAdminPostListQueryDto = {
+      keyword: 'Orientation',
+      page: 1,
+      size: 10,
+      sort: AdminPostSortValue.LATEST,
+    };
+
+    const expected = {
+      posts: [],
+      page: 1,
+      size: 10,
+      totalCount: 0,
+      totalPages: 0,
+    };
+
+    getPostListMock.mockResolvedValue(expected);
+
+    await expect(controller.getPostList(query)).resolves.toEqual(expected);
+
+    expect(getPostListMock).toHaveBeenCalledTimes(1);
+
+    expect(getPostListMock).toHaveBeenCalledWith(query);
   });
 });
