@@ -15,6 +15,7 @@ import { TokenBalancesModule } from './admin/token-balances/token-balances.modul
 import { FilesModule } from './admin/files/files.module';
 import { PostsModule } from './admin/posts/posts.module';
 import { PublicPostsModule } from './posts/posts.module';
+import { AdminProductsModule } from './admin/products/products.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { PublicPostsModule } from './posts/posts.module';
     FilesModule,
     PostsModule,
     PublicPostsModule,
+    AdminProductsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
