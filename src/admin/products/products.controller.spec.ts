@@ -7,6 +7,10 @@ import {
 } from './dto/create-product.dto';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
+import {
+  AdminProductSort,
+  ListProductsQueryDto,
+} from './dto/list-products-query.dto';
 
 describe('ProductsController', () => {
   const productId = '4d2f8c1a-1234-4c11-9f10-abc123456789';
@@ -14,10 +18,12 @@ describe('ProductsController', () => {
   const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
 
   const createProductMock = jest.fn();
+  const getProductListMock = jest.fn();
   const getProductDetailMock = jest.fn();
 
   const productsServiceMock = {
     createProduct: createProductMock,
+    getProductList: getProductListMock,
     getProductDetail: getProductDetailMock,
   };
 
@@ -79,5 +85,30 @@ describe('ProductsController', () => {
 
     expect(getProductDetailMock).toHaveBeenCalledTimes(1);
     expect(getProductDetailMock).toHaveBeenCalledWith(productId);
+  });
+
+  it('should pass the product list query to the service', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      keyword: 'hoodie',
+      sort: AdminProductSort.LATEST,
+    };
+
+    const expected = {
+      items: [],
+      page: 1,
+      limit: 20,
+      totalCount: 0,
+      totalPages: 0,
+    };
+
+    getProductListMock.mockResolvedValue(expected);
+
+    await expect(controller.getProductList(query)).resolves.toEqual(expected);
+
+    expect(getProductListMock).toHaveBeenCalledTimes(1);
+
+    expect(getProductListMock).toHaveBeenCalledWith(query);
   });
 });

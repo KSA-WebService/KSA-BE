@@ -10,6 +10,7 @@ import {
   AdminActionType,
   FilePurpose,
   FileStatus,
+  Prisma,
   ProductType,
   PublicationStatus,
 } from '@prisma/client';
@@ -20,6 +21,14 @@ import {
   CreateProductPublicationStatusValue,
   CreateProductTypeValue,
 } from './dto/create-product.dto';
+
+import {
+  AdminProductAvailabilityStatusFilter,
+  AdminProductPublicationStatusFilter,
+  AdminProductSort,
+  AdminProductTypeFilter,
+  ListProductsQueryDto,
+} from './dto/list-products-query.dto';
 
 const PRODUCT_TYPE_MAP: Record<CreateProductTypeValue, ProductType> = {
   [CreateProductTypeValue.TICKET]: ProductType.TICKET,
@@ -46,6 +55,20 @@ const PUBLICATION_STATUS_VALUE_MAP: Record<
   [PublicationStatus.DRAFT]: 'draft',
   [PublicationStatus.PUBLISHED]: 'published',
   [PublicationStatus.HIDDEN]: 'hidden',
+};
+
+const PRODUCT_TYPE_FILTER_MAP: Record<AdminProductTypeFilter, ProductType> = {
+  [AdminProductTypeFilter.TICKET]: ProductType.TICKET,
+  [AdminProductTypeFilter.MERCHANDISE]: ProductType.MERCHANDISE,
+};
+
+const PUBLICATION_STATUS_FILTER_MAP: Record<
+  AdminProductPublicationStatusFilter,
+  PublicationStatus
+> = {
+  [AdminProductPublicationStatusFilter.DRAFT]: PublicationStatus.DRAFT,
+  [AdminProductPublicationStatusFilter.PUBLISHED]: PublicationStatus.PUBLISHED,
+  [AdminProductPublicationStatusFilter.HIDDEN]: PublicationStatus.HIDDEN,
 };
 
 @Injectable()
@@ -189,6 +212,134 @@ export class ProductsService {
       throw new InternalServerErrorException({
         errorCode: 'P500_PRODUCT_CREATE_FAILED',
         message: 'Failed to create the product',
+      });
+    }
+  }
+
+  async getProductList(query: ListProductsQueryDto) {
+    const {
+      page,
+      limit,
+      keyword,
+      productType,
+      publicationStatus,
+      availabilityStatus,
+      sort,
+    } = query;
+
+    const where: Prisma.ProductWhereInput = {
+      deletedAt: null,
+    };
+
+    if (keyword) {
+      where.name = {
+        contains: keyword,
+        mode: 'insensitive',
+      };
+    }
+
+    if (productType) {
+      where.productType = PRODUCT_TYPE_FILTER_MAP[productType];
+    }
+
+    if (publicationStatus) {
+      where.publicationStatus =
+        PUBLICATION_STATUS_FILTER_MAP[publicationStatus];
+    }
+
+    if (availabilityStatus === AdminProductAvailabilityStatusFilter.AVAILABLE) {
+      where.isOrderable = true;
+      where.stockQuantity = {
+        gt: 0,
+      };
+    }
+
+    if (
+      availabilityStatus === AdminProductAvailabilityStatusFilter.UNAVAILABLE
+    ) {
+      where.OR = [
+        {
+          isOrderable: false,
+        },
+        {
+          stockQuantity: {
+            lte: 0,
+          },
+        },
+      ];
+    }
+
+    const sortDirection = sort === AdminProductSort.OLDEST ? 'asc' : 'desc';
+
+    const skip = (page - 1) * limit;
+
+    try {
+      const [products, totalCount] = await Promise.all([
+        this.prisma.product.findMany({
+          where,
+          select: {
+            id: true,
+            name: true,
+            productType: true,
+            tokenPrice: true,
+            stockQuantity: true,
+            isOrderable: true,
+            publicationStatus: true,
+            updatedAt: true,
+            imageFile: {
+              select: {
+                id: true,
+                fileUrl: true,
+              },
+            },
+          },
+          orderBy: [
+            {
+              updatedAt: sortDirection,
+            },
+            {
+              id: sortDirection,
+            },
+          ],
+          skip,
+          take: limit,
+        }),
+        this.prisma.product.count({
+          where,
+        }),
+      ]);
+
+      return {
+        items: products.map((product) => ({
+          productId: product.id,
+          productName: product.name,
+          productType: PRODUCT_TYPE_VALUE_MAP[product.productType],
+          tokenPrice: product.tokenPrice,
+          stockQuantity: product.stockQuantity,
+          isOrderable: product.isOrderable,
+          availabilityStatus:
+            product.isOrderable && product.stockQuantity > 0
+              ? 'available'
+              : 'unavailable',
+          publicationStatus:
+            PUBLICATION_STATUS_VALUE_MAP[product.publicationStatus],
+          image: product.imageFile
+            ? {
+                fileId: product.imageFile.id,
+                fileUrl: product.imageFile.fileUrl,
+              }
+            : null,
+          updatedAt: product.updatedAt,
+        })),
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+      };
+    } catch {
+      throw new InternalServerErrorException({
+        errorCode: 'P500_PRODUCT_LIST_FETCH_FAILED',
+        message: 'Failed to fetch the product list',
       });
     }
   }
