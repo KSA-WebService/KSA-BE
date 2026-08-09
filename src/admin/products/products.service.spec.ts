@@ -17,6 +17,14 @@ import {
 } from './dto/create-product.dto';
 import { ProductsService } from './products.service';
 
+import {
+  AdminProductAvailabilityStatusFilter,
+  AdminProductPublicationStatusFilter,
+  AdminProductSort,
+  AdminProductTypeFilter,
+  ListProductsQueryDto,
+} from './dto/list-products-query.dto';
+
 describe('ProductsService', () => {
   const fixedNow = new Date('2026-08-08T00:00:00.000Z');
 
@@ -31,6 +39,8 @@ describe('ProductsService', () => {
   const adminActionLogCreateMock = jest.fn();
   const transactionMock = jest.fn();
   const productFindFirstMock = jest.fn();
+  const productFindManyMock = jest.fn();
+  const productCountMock = jest.fn();
 
   const transactionClientMock = {
     file: {
@@ -52,6 +62,8 @@ describe('ProductsService', () => {
     $transaction: transactionMock,
     product: {
       findFirst: productFindFirstMock,
+      findMany: productFindManyMock,
+      count: productCountMock,
     },
   };
 
@@ -755,6 +767,431 @@ describe('ProductsService', () => {
       response: {
         errorCode: 'P500_PRODUCT_FETCH_FAILED',
         message: 'Failed to fetch the product',
+      },
+    });
+  });
+
+  it('should return the paginated administrator product list', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'KSA Hoodie',
+        productType: ProductType.MERCHANDISE,
+        tokenPrice: 150,
+        stockQuantity: 20,
+        isOrderable: true,
+        publicationStatus: PublicationStatus.PUBLISHED,
+        updatedAt: fixedNow,
+        imageFile: {
+          id: fileId,
+          fileUrl: 'https://example.com/ksa-hoodie.png',
+        },
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    await expect(service.getProductList(query)).resolves.toEqual({
+      items: [
+        {
+          productId,
+          productName: 'KSA Hoodie',
+          productType: 'merchandise',
+          tokenPrice: 150,
+          stockQuantity: 20,
+          isOrderable: true,
+          availabilityStatus: 'available',
+          publicationStatus: 'published',
+          image: {
+            fileId,
+            fileUrl: 'https://example.com/ksa-hoodie.png',
+          },
+          updatedAt: fixedNow,
+        },
+      ],
+      page: 1,
+      limit: 20,
+      totalCount: 1,
+      totalPages: 1,
+    });
+
+    expect(productFindManyMock).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        productType: true,
+        tokenPrice: true,
+        stockQuantity: true,
+        isOrderable: true,
+        publicationStatus: true,
+        updatedAt: true,
+        imageFile: {
+          select: {
+            id: true,
+            fileUrl: true,
+          },
+        },
+      },
+      orderBy: [
+        {
+          updatedAt: 'desc',
+        },
+        {
+          id: 'desc',
+        },
+      ],
+      skip: 0,
+      take: 20,
+    });
+
+    expect(productCountMock).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should apply pagination correctly', async () => {
+    const query: ListProductsQueryDto = {
+      page: 3,
+      limit: 10,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(45);
+
+    const result = await service.getProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 20,
+        take: 10,
+      }),
+    );
+
+    expect(result.page).toBe(3);
+    expect(result.limit).toBe(10);
+    expect(result.totalCount).toBe(45);
+    expect(result.totalPages).toBe(5);
+  });
+
+  it('should filter products by a case-insensitive name keyword', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      keyword: 'hoodie',
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+          name: {
+            contains: 'hoodie',
+            mode: 'insensitive',
+          },
+        },
+      }),
+    );
+
+    expect(productCountMock).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        name: {
+          contains: 'hoodie',
+          mode: 'insensitive',
+        },
+      },
+    });
+  });
+
+  it('should combine product type and publication status filters', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      productType: AdminProductTypeFilter.TICKET,
+      publicationStatus: AdminProductPublicationStatusFilter.PUBLISHED,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+          productType: ProductType.TICKET,
+          publicationStatus: PublicationStatus.PUBLISHED,
+        },
+      }),
+    );
+  });
+
+  it('should filter available products', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      availabilityStatus: AdminProductAvailabilityStatusFilter.AVAILABLE,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+          isOrderable: true,
+          stockQuantity: {
+            gt: 0,
+          },
+        },
+      }),
+    );
+  });
+
+  it('should filter unavailable products', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      availabilityStatus: AdminProductAvailabilityStatusFilter.UNAVAILABLE,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+          OR: [
+            {
+              isOrderable: false,
+            },
+            {
+              stockQuantity: {
+                lte: 0,
+              },
+            },
+          ],
+        },
+      }),
+    );
+  });
+
+  it('should combine all product list filters', async () => {
+    const query: ListProductsQueryDto = {
+      page: 2,
+      limit: 10,
+      keyword: 'ticket',
+      productType: AdminProductTypeFilter.TICKET,
+      publicationStatus: AdminProductPublicationStatusFilter.PUBLISHED,
+      availabilityStatus: AdminProductAvailabilityStatusFilter.AVAILABLE,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+          name: {
+            contains: 'ticket',
+            mode: 'insensitive',
+          },
+          productType: ProductType.TICKET,
+          publicationStatus: PublicationStatus.PUBLISHED,
+          isOrderable: true,
+          stockQuantity: {
+            gt: 0,
+          },
+        },
+        skip: 10,
+        take: 10,
+      }),
+    );
+  });
+
+  it('should sort products by oldest updated time', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      sort: AdminProductSort.OLDEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [
+          {
+            updatedAt: 'asc',
+          },
+          {
+            id: 'asc',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('should return null image for products without an image', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'Draft Ticket',
+        productType: ProductType.TICKET,
+        tokenPrice: 10,
+        stockQuantity: 100,
+        isOrderable: true,
+        publicationStatus: PublicationStatus.DRAFT,
+        updatedAt: fixedNow,
+        imageFile: null,
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    const result = await service.getProductList(query);
+
+    expect(result.items[0]).toMatchObject({
+      publicationStatus: 'draft',
+      image: null,
+    });
+  });
+  it('should return unavailable for a zero-stock product', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'Sold Out Ticket',
+        productType: ProductType.TICKET,
+        tokenPrice: 10,
+        stockQuantity: 0,
+        isOrderable: true,
+        publicationStatus: PublicationStatus.PUBLISHED,
+        updatedAt: fixedNow,
+        imageFile: null,
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    const result = await service.getProductList(query);
+
+    expect(result.items[0].availabilityStatus).toBe('unavailable');
+  });
+
+  it('should return unavailable when product ordering is disabled', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'Paused Ticket',
+        productType: ProductType.TICKET,
+        tokenPrice: 10,
+        stockQuantity: 100,
+        isOrderable: false,
+        publicationStatus: PublicationStatus.PUBLISHED,
+        updatedAt: fixedNow,
+        imageFile: null,
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    const result = await service.getProductList(query);
+
+    expect(result.items[0].availabilityStatus).toBe('unavailable');
+  });
+
+  it('should return an empty successful result when no products match', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      keyword: 'does-not-exist',
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await expect(service.getProductList(query)).resolves.toEqual({
+      items: [],
+      page: 1,
+      limit: 20,
+      totalCount: 0,
+      totalPages: 0,
+    });
+  });
+
+  it('should return a list fetch error when the database query fails unexpectedly', async () => {
+    const query: ListProductsQueryDto = {
+      page: 1,
+      limit: 20,
+      sort: AdminProductSort.LATEST,
+    };
+
+    productFindManyMock.mockRejectedValueOnce(new Error('Database failure'));
+
+    productCountMock.mockResolvedValue(0);
+
+    await expect(service.getProductList(query)).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'P500_PRODUCT_LIST_FETCH_FAILED',
+        message: 'Failed to fetch the product list',
       },
     });
   });
