@@ -30,6 +30,7 @@ describe('ProductsService', () => {
   const productCreateMock = jest.fn();
   const adminActionLogCreateMock = jest.fn();
   const transactionMock = jest.fn();
+  const productFindFirstMock = jest.fn();
 
   const transactionClientMock = {
     file: {
@@ -49,6 +50,9 @@ describe('ProductsService', () => {
 
   const prismaMock = {
     $transaction: transactionMock,
+    product: {
+      findFirst: productFindFirstMock,
+    },
   };
 
   const service = new ProductsService(prismaMock as unknown as PrismaService);
@@ -505,6 +509,252 @@ describe('ProductsService', () => {
       response: {
         errorCode: 'P500_PRODUCT_CREATE_FAILED',
         message: 'Failed to create the product',
+      },
+    });
+  });
+
+  it('should return the detailed information of a published product', async () => {
+    productFindFirstMock.mockResolvedValue({
+      id: productId,
+      name: 'KSA Hoodie',
+      productType: ProductType.MERCHANDISE,
+      tokenPrice: 150,
+      stockQuantity: 20,
+      isOrderable: true,
+      description: 'Official KSA hoodie for HKUST students.',
+      publicationStatus: PublicationStatus.PUBLISHED,
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+      imageFile: {
+        id: fileId,
+        fileUrl: 'https://example.com/ksa-hoodie.png',
+      },
+      _count: {
+        orders: 0,
+      },
+    });
+
+    await expect(service.getProductDetail(productId)).resolves.toEqual({
+      productId,
+      productName: 'KSA Hoodie',
+      productType: 'merchandise',
+      tokenPrice: 150,
+      stockQuantity: 20,
+      isOrderable: true,
+      availabilityStatus: 'available',
+      publicationStatus: 'published',
+      description: 'Official KSA hoodie for HKUST students.',
+      image: {
+        fileId,
+        fileUrl: 'https://example.com/ksa-hoodie.png',
+      },
+      coreFieldsLocked: false,
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+    });
+
+    expect(productFindFirstMock).toHaveBeenCalledWith({
+      where: {
+        id: productId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        productType: true,
+        tokenPrice: true,
+        stockQuantity: true,
+        isOrderable: true,
+        description: true,
+        publicationStatus: true,
+        publishedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        imageFile: {
+          select: {
+            id: true,
+            fileUrl: true,
+          },
+        },
+        _count: {
+          select: {
+            orders: true,
+          },
+        },
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should return a draft product without a description or image', async () => {
+    productFindFirstMock.mockResolvedValue({
+      id: productId,
+      name: 'Lucky Draw Ticket',
+      productType: ProductType.TICKET,
+      tokenPrice: 10,
+      stockQuantity: 100,
+      isOrderable: true,
+      description: null,
+      publicationStatus: PublicationStatus.DRAFT,
+      publishedAt: null,
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+      imageFile: null,
+      _count: {
+        orders: 0,
+      },
+    });
+
+    await expect(service.getProductDetail(productId)).resolves.toEqual({
+      productId,
+      productName: 'Lucky Draw Ticket',
+      productType: 'ticket',
+      tokenPrice: 10,
+      stockQuantity: 100,
+      isOrderable: true,
+      availabilityStatus: 'available',
+      publicationStatus: 'draft',
+      description: null,
+      image: null,
+      coreFieldsLocked: false,
+      publishedAt: null,
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+    });
+  });
+
+  it('should lock core fields when the product has at least one order', async () => {
+    productFindFirstMock.mockResolvedValue({
+      id: productId,
+      name: 'KSA Hoodie',
+      productType: ProductType.MERCHANDISE,
+      tokenPrice: 150,
+      stockQuantity: 20,
+      isOrderable: true,
+      description: 'Official KSA hoodie.',
+      publicationStatus: PublicationStatus.PUBLISHED,
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+      imageFile: {
+        id: fileId,
+        fileUrl: 'https://example.com/ksa-hoodie.png',
+      },
+      _count: {
+        orders: 1,
+      },
+    });
+
+    const result = await service.getProductDetail(productId);
+
+    expect(result.coreFieldsLocked).toBe(true);
+  });
+
+  it('should return unavailable when the product has zero stock', async () => {
+    productFindFirstMock.mockResolvedValue({
+      id: productId,
+      name: 'Sold Out Ticket',
+      productType: ProductType.TICKET,
+      tokenPrice: 20,
+      stockQuantity: 0,
+      isOrderable: true,
+      description: 'Lucky draw ticket.',
+      publicationStatus: PublicationStatus.PUBLISHED,
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+      imageFile: {
+        id: fileId,
+        fileUrl: 'https://example.com/ticket.png',
+      },
+      _count: {
+        orders: 0,
+      },
+    });
+
+    const result = await service.getProductDetail(productId);
+
+    expect(result.availabilityStatus).toBe('unavailable');
+  });
+
+  it('should return unavailable when ordering is manually disabled', async () => {
+    productFindFirstMock.mockResolvedValue({
+      id: productId,
+      name: 'Paused Ticket',
+      productType: ProductType.TICKET,
+      tokenPrice: 20,
+      stockQuantity: 100,
+      isOrderable: false,
+      description: 'Temporarily unavailable.',
+      publicationStatus: PublicationStatus.PUBLISHED,
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+      imageFile: {
+        id: fileId,
+        fileUrl: 'https://example.com/ticket.png',
+      },
+      _count: {
+        orders: 0,
+      },
+    });
+
+    const result = await service.getProductDetail(productId);
+
+    expect(result.availabilityStatus).toBe('unavailable');
+  });
+
+  it('should return hidden products to administrators', async () => {
+    productFindFirstMock.mockResolvedValue({
+      id: productId,
+      name: 'Hidden Merchandise',
+      productType: ProductType.MERCHANDISE,
+      tokenPrice: 100,
+      stockQuantity: 10,
+      isOrderable: false,
+      description: 'Hidden product.',
+      publicationStatus: PublicationStatus.HIDDEN,
+      publishedAt: fixedNow,
+      createdAt: fixedNow,
+      updatedAt: fixedNow,
+      imageFile: {
+        id: fileId,
+        fileUrl: 'https://example.com/product.png',
+      },
+      _count: {
+        orders: 0,
+      },
+    });
+
+    const result = await service.getProductDetail(productId);
+
+    expect(result.publicationStatus).toBe('hidden');
+  });
+
+  it('should return product not found when the product does not exist', async () => {
+    productFindFirstMock.mockResolvedValue(null);
+
+    await expect(service.getProductDetail(productId)).rejects.toMatchObject({
+      status: 404,
+      response: {
+        errorCode: 'P404_PRODUCT_NOT_FOUND',
+        message: 'Product not found',
+      },
+    });
+  });
+
+  it('should return a fetch error when the database query fails unexpectedly', async () => {
+    productFindFirstMock.mockRejectedValueOnce(new Error('Database failure'));
+
+    await expect(service.getProductDetail(productId)).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'P500_PRODUCT_FETCH_FAILED',
+        message: 'Failed to fetch the product',
       },
     });
   });

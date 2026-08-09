@@ -1,4 +1,13 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductsService } from './products.service';
@@ -23,5 +32,13 @@ export class ProductsController {
     request: AuthenticatedAdminRequest,
   ) {
     return this.productsService.createProduct(dto, request.user.id);
+  }
+
+  @Get(':productId')
+  async getProductDetail(
+    @Param('productId', new ParseUUIDPipe({ version: '4' }))
+    productId: string,
+  ) {
+    return this.productsService.getProductDetail(productId);
   }
 }
