@@ -14,9 +14,11 @@ describe('ProductsController', () => {
   const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
 
   const createProductMock = jest.fn();
+  const getProductDetailMock = jest.fn();
 
   const productsServiceMock = {
     createProduct: createProductMock,
+    getProductDetail: getProductDetailMock,
   };
 
   const controller = new ProductsController(
@@ -59,5 +61,23 @@ describe('ProductsController', () => {
     expect(createProductMock).toHaveBeenCalledTimes(1);
 
     expect(createProductMock).toHaveBeenCalledWith(dto, adminId);
+  });
+
+  it('should pass the product ID to the service when retrieving product detail', async () => {
+    const expected = {
+      productId,
+      productName: 'KSA Hoodie',
+      productType: 'merchandise',
+      tokenPrice: 150,
+    };
+
+    getProductDetailMock.mockResolvedValue(expected);
+
+    await expect(controller.getProductDetail(productId)).resolves.toEqual(
+      expected,
+    );
+
+    expect(getProductDetailMock).toHaveBeenCalledTimes(1);
+    expect(getProductDetailMock).toHaveBeenCalledWith(productId);
   });
 });

@@ -192,4 +192,81 @@ export class ProductsService {
       });
     }
   }
+
+  async getProductDetail(productId: string) {
+    try {
+      const product = await this.prisma.product.findFirst({
+        where: {
+          id: productId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          name: true,
+          productType: true,
+          tokenPrice: true,
+          stockQuantity: true,
+          isOrderable: true,
+          description: true,
+          publicationStatus: true,
+          publishedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          imageFile: {
+            select: {
+              id: true,
+              fileUrl: true,
+            },
+          },
+          _count: {
+            select: {
+              orders: true,
+            },
+          },
+        },
+      });
+
+      if (!product) {
+        throw new NotFoundException({
+          errorCode: 'P404_PRODUCT_NOT_FOUND',
+          message: 'Product not found',
+        });
+      }
+
+      return {
+        productId: product.id,
+        productName: product.name,
+        productType: PRODUCT_TYPE_VALUE_MAP[product.productType],
+        tokenPrice: product.tokenPrice,
+        stockQuantity: product.stockQuantity,
+        isOrderable: product.isOrderable,
+        availabilityStatus:
+          product.isOrderable && product.stockQuantity > 0
+            ? 'available'
+            : 'unavailable',
+        publicationStatus:
+          PUBLICATION_STATUS_VALUE_MAP[product.publicationStatus],
+        description: product.description,
+        image: product.imageFile
+          ? {
+              fileId: product.imageFile.id,
+              fileUrl: product.imageFile.fileUrl,
+            }
+          : null,
+        coreFieldsLocked: product._count.orders > 0,
+        publishedAt: product.publishedAt,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException({
+        errorCode: 'P500_PRODUCT_FETCH_FAILED',
+        message: 'Failed to fetch the product',
+      });
+    }
+  }
 }
