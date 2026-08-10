@@ -25,6 +25,11 @@ import {
   ListProductsQueryDto,
 } from './dto/list-products-query.dto';
 
+import {
+  UpdateProductDto,
+  UpdateProductPublicationStatusValue,
+} from './dto/update-product.dto';
+
 describe('ProductsService', () => {
   const fixedNow = new Date('2026-08-08T00:00:00.000Z');
 
@@ -41,6 +46,8 @@ describe('ProductsService', () => {
   const productFindFirstMock = jest.fn();
   const productFindManyMock = jest.fn();
   const productCountMock = jest.fn();
+  const productTransactionFindFirstMock = jest.fn();
+  const productUpdateMock = jest.fn();
 
   const transactionClientMock = {
     file: {
@@ -48,6 +55,8 @@ describe('ProductsService', () => {
     },
     product: {
       create: productCreateMock,
+      findFirst: productTransactionFindFirstMock,
+      update: productUpdateMock,
     },
     adminActionLog: {
       create: adminActionLogCreateMock,
@@ -68,6 +77,48 @@ describe('ProductsService', () => {
   };
 
   const service = new ProductsService(prismaMock as unknown as PrismaService);
+
+  const makeExistingProduct = (overrides: Record<string, unknown> = {}) => ({
+    id: productId,
+    name: 'KSA Hoodie',
+    productType: ProductType.MERCHANDISE,
+    tokenPrice: 150,
+    stockQuantity: 20,
+    isOrderable: true,
+    description: 'Official KSA hoodie for HKUST students.',
+    imageFileId: fileId,
+    publicationStatus: PublicationStatus.PUBLISHED,
+    publishedAt: fixedNow,
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+    imageFile: {
+      id: fileId,
+      fileUrl: 'https://example.com/ksa-hoodie.png',
+    },
+    _count: {
+      orders: 0,
+    },
+    ...overrides,
+  });
+
+  const makeUpdatedProduct = (overrides: Record<string, unknown> = {}) => ({
+    id: productId,
+    name: 'KSA Hoodie',
+    productType: ProductType.MERCHANDISE,
+    tokenPrice: 150,
+    stockQuantity: 20,
+    isOrderable: true,
+    description: 'Official KSA hoodie for HKUST students.',
+    publicationStatus: PublicationStatus.PUBLISHED,
+    publishedAt: fixedNow,
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+    imageFile: {
+      id: fileId,
+      fileUrl: 'https://example.com/ksa-hoodie.png',
+    },
+    ...overrides,
+  });
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -1192,6 +1243,602 @@ describe('ProductsService', () => {
       response: {
         errorCode: 'P500_PRODUCT_LIST_FETCH_FAILED',
         message: 'Failed to fetch the product list',
+      },
+    });
+  });
+
+  it('should reject an empty product update request', async () => {
+    const dto: UpdateProductDto = {};
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: {
+        errorCode: 'P400_PRODUCT_UPDATE_REQUIRED',
+        message: 'At least one product field must be provided',
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('should update editable product fields', async () => {
+    const dto: UpdateProductDto = {
+      stockQuantity: 15,
+      isOrderable: false,
+      description: 'Updated description.',
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        stockQuantity: 15,
+        isOrderable: false,
+        description: 'Updated description.',
+      }),
+    );
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).resolves.toMatchObject({
+      productId,
+      stockQuantity: 15,
+      isOrderable: false,
+      availabilityStatus: 'unavailable',
+      description: 'Updated description.',
+    });
+
+    expect(productUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: productId,
+        },
+        data: {
+          name: 'KSA Hoodie',
+          tokenPrice: 150,
+          stockQuantity: 15,
+          isOrderable: false,
+          description: 'Updated description.',
+          imageFileId: fileId,
+          publicationStatus: PublicationStatus.PUBLISHED,
+          publishedAt: fixedNow,
+        },
+      }),
+    );
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        adminId,
+        actionType: AdminActionType.PRODUCT,
+        action: AdminAction.UPDATE_PRODUCT,
+        targetId: productId,
+        metadata: {
+          changedFields: ['stockQuantity', 'isOrderable', 'description'],
+        },
+      },
+    });
+  });
+
+  it('should allow changing product name and token price before any order exists', async () => {
+    const dto: UpdateProductDto = {
+      productName: 'KSA Premium Hoodie',
+      tokenPrice: 180,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(
+      makeExistingProduct({
+        _count: {
+          orders: 0,
+        },
+      }),
+    );
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        name: 'KSA Premium Hoodie',
+        tokenPrice: 180,
+      }),
+    );
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).resolves.toMatchObject({
+      productName: 'KSA Premium Hoodie',
+      tokenPrice: 180,
+    });
+  });
+
+  it('should reject changing the product name after an order exists', async () => {
+    const dto: UpdateProductDto = {
+      productName: 'New Hoodie Name',
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(
+      makeExistingProduct({
+        _count: {
+          orders: 1,
+        },
+      }),
+    );
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'P409_PRODUCT_CORE_FIELDS_LOCKED',
+      },
+    });
+
+    expect(productUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject changing the token price after an order exists', async () => {
+    const dto: UpdateProductDto = {
+      tokenPrice: 200,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(
+      makeExistingProduct({
+        _count: {
+          orders: 3,
+        },
+      }),
+    );
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'P409_PRODUCT_CORE_FIELDS_LOCKED',
+      },
+    });
+
+    expect(productUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should allow unchanged core fields after an order exists', async () => {
+    const dto: UpdateProductDto = {
+      productName: 'KSA Hoodie',
+      tokenPrice: 150,
+      stockQuantity: 30,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(
+      makeExistingProduct({
+        _count: {
+          orders: 2,
+        },
+      }),
+    );
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        stockQuantity: 30,
+      }),
+    );
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).resolves.toMatchObject({
+      stockQuantity: 30,
+    });
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
+      data: {
+        adminId,
+        actionType: AdminActionType.PRODUCT,
+        action: AdminAction.UPDATE_PRODUCT,
+        targetId: productId,
+        metadata: {
+          changedFields: ['stockQuantity'],
+        },
+      },
+    });
+  });
+
+  it('should publish a draft product when the final state is valid', async () => {
+    const dto: UpdateProductDto = {
+      publicationStatus: UpdateProductPublicationStatusValue.PUBLISHED,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(
+      makeExistingProduct({
+        publicationStatus: PublicationStatus.DRAFT,
+        publishedAt: null,
+      }),
+    );
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        publicationStatus: PublicationStatus.PUBLISHED,
+        publishedAt: fixedNow,
+      }),
+    );
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    await service.updateProduct(productId, dto, adminId);
+
+    expect(productUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          name: 'KSA Hoodie',
+          tokenPrice: 150,
+          stockQuantity: 20,
+          isOrderable: true,
+          description: 'Official KSA hoodie for HKUST students.',
+          imageFileId: fileId,
+          publicationStatus: PublicationStatus.PUBLISHED,
+          publishedAt: fixedNow,
+        },
+      }),
+    );
+  });
+
+  it('should reject publishing a product without a description', async () => {
+    const dto: UpdateProductDto = {
+      publicationStatus: UpdateProductPublicationStatusValue.PUBLISHED,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(
+      makeExistingProduct({
+        description: null,
+        publicationStatus: PublicationStatus.DRAFT,
+        publishedAt: null,
+      }),
+    );
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: {
+        errorCode: 'P400_PRODUCT_DESCRIPTION_REQUIRED',
+      },
+    });
+
+    expect(productUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject publishing a product without an image', async () => {
+    const dto: UpdateProductDto = {
+      publicationStatus: UpdateProductPublicationStatusValue.PUBLISHED,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(
+      makeExistingProduct({
+        imageFileId: null,
+        imageFile: null,
+        publicationStatus: PublicationStatus.DRAFT,
+        publishedAt: null,
+      }),
+    );
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: {
+        errorCode: 'P400_PRODUCT_IMAGE_REQUIRED',
+      },
+    });
+
+    expect(productUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject removing the description while remaining published', async () => {
+    const dto: UpdateProductDto = {
+      description: null,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: {
+        errorCode: 'P400_PRODUCT_DESCRIPTION_REQUIRED',
+      },
+    });
+  });
+
+  it('should allow removing description and image when moving to draft', async () => {
+    const dto: UpdateProductDto = {
+      description: null,
+      imageFileId: null,
+      publicationStatus: UpdateProductPublicationStatusValue.DRAFT,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        description: null,
+        publicationStatus: PublicationStatus.DRAFT,
+        imageFile: null,
+      }),
+    );
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).resolves.toMatchObject({
+      description: null,
+      image: null,
+      publicationStatus: 'draft',
+    });
+
+    expect(fileFindFirstMock).not.toHaveBeenCalled();
+  });
+
+  it('should validate and replace the product image', async () => {
+    const newFileId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    const dto: UpdateProductDto = {
+      imageFileId: newFileId,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    fileFindFirstMock.mockResolvedValue({
+      id: newFileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        imageFile: {
+          id: newFileId,
+          fileUrl: 'https://example.com/new-product.png',
+        },
+      }),
+    );
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    await service.updateProduct(productId, dto, adminId);
+
+    expect(fileFindFirstMock).toHaveBeenCalledWith({
+      where: {
+        id: newFileId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        status: true,
+        purpose: true,
+      },
+    });
+
+    expect(productUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          name: 'KSA Hoodie',
+          tokenPrice: 150,
+          stockQuantity: 20,
+          isOrderable: true,
+          description: 'Official KSA hoodie for HKUST students.',
+          imageFileId: newFileId,
+          publicationStatus: PublicationStatus.PUBLISHED,
+          publishedAt: fixedNow,
+        },
+      }),
+    );
+  });
+
+  it('should reject an invalid replacement image', async () => {
+    const newFileId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    const dto: UpdateProductDto = {
+      imageFileId: newFileId,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    fileFindFirstMock.mockResolvedValue({
+      id: newFileId,
+      status: FileStatus.PENDING,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: {
+        errorCode: 'P400_PRODUCT_IMAGE_INVALID',
+      },
+    });
+
+    expect(productUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should preserve the first publication time when republishing a hidden product', async () => {
+    const firstPublishedAt = new Date('2026-08-01T00:00:00.000Z');
+
+    const dto: UpdateProductDto = {
+      publicationStatus: UpdateProductPublicationStatusValue.PUBLISHED,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(
+      makeExistingProduct({
+        publicationStatus: PublicationStatus.HIDDEN,
+        publishedAt: firstPublishedAt,
+      }),
+    );
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        publicationStatus: PublicationStatus.PUBLISHED,
+        publishedAt: firstPublishedAt,
+      }),
+    );
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    await service.updateProduct(productId, dto, adminId);
+
+    expect(productUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          name: 'KSA Hoodie',
+          tokenPrice: 150,
+          stockQuantity: 20,
+          isOrderable: true,
+          description: 'Official KSA hoodie for HKUST students.',
+          imageFileId: fileId,
+          publicationStatus: PublicationStatus.PUBLISHED,
+          publishedAt: firstPublishedAt,
+        },
+      }),
+    );
+  });
+
+  it('should not update the database or create an audit log when values do not change', async () => {
+    const dto: UpdateProductDto = {
+      stockQuantity: 20,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).resolves.toMatchObject({
+      stockQuantity: 20,
+    });
+    expect(productUpdateMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject updating a missing product', async () => {
+    const dto: UpdateProductDto = {
+      stockQuantity: 10,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(null);
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 404,
+      response: {
+        errorCode: 'P404_PRODUCT_NOT_FOUND',
+        message: 'Product not found',
+      },
+    });
+  });
+
+  it('should return an update error when audit log creation fails', async () => {
+    const dto: UpdateProductDto = {
+      stockQuantity: 15,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+    });
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        stockQuantity: 15,
+      }),
+    );
+
+    adminActionLogCreateMock.mockRejectedValueOnce(
+      new Error('Audit log failure'),
+    );
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'P500_PRODUCT_UPDATE_FAILED',
+        message: 'Failed to update the product',
+      },
+    });
+  });
+
+  it('should return an update error when the transaction fails unexpectedly', async () => {
+    const dto: UpdateProductDto = {
+      stockQuantity: 15,
+    };
+
+    transactionMock.mockRejectedValueOnce(new Error('Database failure'));
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'P500_PRODUCT_UPDATE_FAILED',
+        message: 'Failed to update the product',
       },
     });
   });

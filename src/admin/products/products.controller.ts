@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -15,6 +16,7 @@ import { ProductsService } from './products.service';
 import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
 import { AdminGuard } from '../../auth/admin.guard';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 type AuthenticatedAdminRequest = {
   user: {
@@ -47,5 +49,15 @@ export class ProductsController {
     productId: string,
   ) {
     return this.productsService.getProductDetail(productId);
+  }
+
+  @Patch(':productId')
+  async updateProduct(
+    @Param('productId', new ParseUUIDPipe({ version: '4' }))
+    productId: string,
+    @Body() dto: UpdateProductDto,
+    @Req() request: AuthenticatedAdminRequest,
+  ) {
+    return this.productsService.updateProduct(productId, dto, request.user.id);
   }
 }
