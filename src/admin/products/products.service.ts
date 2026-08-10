@@ -36,6 +36,12 @@ import {
   UpdateProductPublicationStatusValue,
 } from './dto/update-product.dto';
 
+import {
+  ListPublicProductsQueryDto,
+  PublicProductSort,
+  PublicProductTypeFilter,
+} from './dto/list-public-products-query.dto';
+
 const PRODUCT_TYPE_MAP: Record<CreateProductTypeValue, ProductType> = {
   [CreateProductTypeValue.TICKET]: ProductType.TICKET,
   [CreateProductTypeValue.MERCHANDISE]: ProductType.MERCHANDISE,
@@ -84,6 +90,14 @@ const UPDATE_PUBLICATION_STATUS_MAP: Record<
   [UpdateProductPublicationStatusValue.DRAFT]: PublicationStatus.DRAFT,
   [UpdateProductPublicationStatusValue.PUBLISHED]: PublicationStatus.PUBLISHED,
   [UpdateProductPublicationStatusValue.HIDDEN]: PublicationStatus.HIDDEN,
+};
+
+const PUBLIC_PRODUCT_TYPE_FILTER_MAP: Record<
+  PublicProductTypeFilter,
+  ProductType
+> = {
+  [PublicProductTypeFilter.TICKET]: ProductType.TICKET,
+  [PublicProductTypeFilter.MERCHANDISE]: ProductType.MERCHANDISE,
 };
 @Injectable()
 export class ProductsService {
@@ -354,6 +368,90 @@ export class ProductsService {
       throw new InternalServerErrorException({
         errorCode: 'P500_PRODUCT_LIST_FETCH_FAILED',
         message: 'Failed to fetch the product list',
+      });
+    }
+  }
+
+  async getPublicProductList(query: ListPublicProductsQueryDto) {
+    const { page, limit, productType, sort } = query;
+
+    const where: Prisma.ProductWhereInput = {
+      deletedAt: null,
+      publicationStatus: PublicationStatus.PUBLISHED,
+    };
+
+    if (productType) {
+      where.productType = PUBLIC_PRODUCT_TYPE_FILTER_MAP[productType];
+    }
+
+    const sortDirection = sort === PublicProductSort.OLDEST ? 'asc' : 'desc';
+
+    const skip = (page - 1) * limit;
+
+    try {
+      const [products, totalCount] = await Promise.all([
+        this.prisma.product.findMany({
+          where,
+          select: {
+            id: true,
+            name: true,
+            productType: true,
+            description: true,
+            tokenPrice: true,
+            stockQuantity: true,
+            isOrderable: true,
+            publishedAt: true,
+            imageFile: {
+              select: {
+                id: true,
+                fileUrl: true,
+              },
+            },
+          },
+          orderBy: [
+            {
+              publishedAt: sortDirection,
+            },
+            {
+              id: sortDirection,
+            },
+          ],
+          skip,
+          take: limit,
+        }),
+        this.prisma.product.count({
+          where,
+        }),
+      ]);
+
+      return {
+        items: products.map((product) => ({
+          productId: product.id,
+          productName: product.name,
+          productType: PRODUCT_TYPE_VALUE_MAP[product.productType],
+          description: product.description,
+          tokenPrice: product.tokenPrice,
+          image: product.imageFile
+            ? {
+                fileId: product.imageFile.id,
+                fileUrl: product.imageFile.fileUrl,
+              }
+            : null,
+          availabilityStatus:
+            product.isOrderable && product.stockQuantity > 0
+              ? 'available'
+              : 'unavailable',
+          publishedAt: product.publishedAt,
+        })),
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+      };
+    } catch {
+      throw new InternalServerErrorException({
+        errorCode: 'P500_PUBLIC_PRODUCT_LIST_FETCH_FAILED',
+        message: 'Failed to fetch the public product list',
       });
     }
   }
