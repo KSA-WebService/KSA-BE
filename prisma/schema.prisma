@@ -96,6 +96,7 @@ enum OrderStatus {
   ORDERED   @map("ordered")
   ACCEPTED  @map("accepted")
   DELIVERED @map("delivered")
+  CANCELED  @map("canceled")
 
   @@map("order_status")
 }
@@ -104,6 +105,7 @@ enum TokenTransactionType {
   EVENT_GRANT      @map("event_grant")
   EVENT_ADJUSTMENT @map("event_adjustment")
   ORDER_PAYMENT    @map("order_payment")
+  ORDER_REFUND     @map("order_refund")
   RESET            @map("reset")
 
   @@map("token_transaction_type")
@@ -290,27 +292,31 @@ model Product {
 }
 
 model Order {
-  id          String      @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
-  userId      String      @map("user_id") @db.Uuid
-  productId   String      @map("product_id") @db.Uuid
-  quantity    Int         @map("quantity")
-  unitPrice   Int         @map("unit_price")
-  totalAmount Int         @map("total_amount")
-  status      OrderStatus @default(ORDERED) @map("status")
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at")
-  acceptedAt  DateTime?   @map("accepted_at")
-  deliveredAt DateTime?   @map("delivered_at")
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
+  userId             String      @map("user_id") @db.Uuid
+  productId          String      @map("product_id") @db.Uuid
+  idempotencyKey     String      @unique @map("idempotency_key") @db.Uuid
+  quantity           Int         @map("quantity")
+  unitPrice          Int         @map("unit_price")
+  totalAmount        Int         @map("total_amount")
+  status             OrderStatus @default(ORDERED) @map("status")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @default(now()) @updatedAt @map("updated_at")
+  acceptedAt         DateTime?   @map("accepted_at")
+  deliveredAt        DateTime?   @map("delivered_at")
+  canceledAt         DateTime?   @map("canceled_at")
+  cancellationReason String?     @map("cancellation_reason") @db.VarChar(255)
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
 
   statusLogs OrderStatusLog[]
-  tokenLog   TokenLog?
+  tokenLogs  TokenLog[]
 
-  @@index([userId])
+  @@index([userId, createdAt, id])
   @@index([productId])
-  @@index([status])
+  @@index([status, createdAt, id])
+  @@index([createdAt, id])
   @@map("orders")
 }
 
@@ -483,7 +489,7 @@ model TokenLog {
   adminId         String?              @map("admin_id") @db.Uuid
   userId          String               @map("user_id") @db.Uuid
   tokenGrantId    String?              @map("token_grant_id") @db.Uuid
-  orderId         String?              @unique @map("order_id") @db.Uuid
+  orderId         String?              @map("order_id") @db.Uuid
   balanceBefore   Int                  @map("balance_before")
   balanceAfter    Int                  @map("balance_after")
   delta           Int                  @map("delta")
@@ -498,6 +504,7 @@ model TokenLog {
 
   order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
+  @@unique([orderId, transactionType])
   @@index([adminId])
   @@index([userId, createdAt])
   @@index([tokenGrantId])
