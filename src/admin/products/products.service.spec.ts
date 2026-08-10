@@ -30,6 +30,12 @@ import {
   UpdateProductPublicationStatusValue,
 } from './dto/update-product.dto';
 
+import {
+  ListPublicProductsQueryDto,
+  PublicProductSort,
+  PublicProductTypeFilter,
+} from './dto/list-public-products-query.dto';
+
 describe('ProductsService', () => {
   const fixedNow = new Date('2026-08-08T00:00:00.000Z');
 
@@ -1839,6 +1845,395 @@ describe('ProductsService', () => {
       response: {
         errorCode: 'P500_PRODUCT_UPDATE_FAILED',
         message: 'Failed to update the product',
+      },
+    });
+  });
+
+  it('should return the paginated public product list', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'KSA Hoodie',
+        productType: ProductType.MERCHANDISE,
+        description: 'Official KSA hoodie for HKUST students.',
+        tokenPrice: 150,
+        stockQuantity: 20,
+        isOrderable: true,
+        publishedAt: fixedNow,
+        imageFile: {
+          id: fileId,
+          fileUrl: 'https://example.com/ksa-hoodie.png',
+        },
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    await expect(service.getPublicProductList(query)).resolves.toEqual({
+      items: [
+        {
+          productId,
+          productName: 'KSA Hoodie',
+          productType: 'merchandise',
+          description: 'Official KSA hoodie for HKUST students.',
+          tokenPrice: 150,
+          image: {
+            fileId,
+            fileUrl: 'https://example.com/ksa-hoodie.png',
+          },
+          availabilityStatus: 'available',
+          publishedAt: fixedNow,
+        },
+      ],
+      page: 1,
+      limit: 12,
+      totalCount: 1,
+      totalPages: 1,
+    });
+
+    expect(productFindManyMock).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        publicationStatus: PublicationStatus.PUBLISHED,
+      },
+      select: {
+        id: true,
+        name: true,
+        productType: true,
+        description: true,
+        tokenPrice: true,
+        stockQuantity: true,
+        isOrderable: true,
+        publishedAt: true,
+        imageFile: {
+          select: {
+            id: true,
+            fileUrl: true,
+          },
+        },
+      },
+      orderBy: [
+        {
+          publishedAt: 'desc',
+        },
+        {
+          id: 'desc',
+        },
+      ],
+      skip: 0,
+      take: 12,
+    });
+
+    expect(productCountMock).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        publicationStatus: PublicationStatus.PUBLISHED,
+      },
+    });
+
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should apply public product pagination correctly', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 2,
+      limit: 6,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(14);
+
+    await expect(service.getPublicProductList(query)).resolves.toMatchObject({
+      page: 2,
+      limit: 6,
+      totalCount: 14,
+      totalPages: 3,
+    });
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 6,
+        take: 6,
+      }),
+    );
+  });
+
+  it('should filter public products by ticket type', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      productType: PublicProductTypeFilter.TICKET,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getPublicProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+          publicationStatus: PublicationStatus.PUBLISHED,
+          productType: ProductType.TICKET,
+        },
+      }),
+    );
+
+    expect(productCountMock).toHaveBeenCalledWith({
+      where: {
+        deletedAt: null,
+        publicationStatus: PublicationStatus.PUBLISHED,
+        productType: ProductType.TICKET,
+      },
+    });
+  });
+
+  it('should filter public products by merchandise type', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      productType: PublicProductTypeFilter.MERCHANDISE,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getPublicProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+          publicationStatus: PublicationStatus.PUBLISHED,
+          productType: ProductType.MERCHANDISE,
+        },
+      }),
+    );
+  });
+
+  it('should sort public products by oldest publication time', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      sort: PublicProductSort.OLDEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await service.getPublicProductList(query);
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [
+          {
+            publishedAt: 'asc',
+          },
+          {
+            id: 'asc',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('should keep zero-stock published products visible as unavailable', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'KSA Ticket',
+        productType: ProductType.TICKET,
+        description: 'Event ticket.',
+        tokenPrice: 20,
+        stockQuantity: 0,
+        isOrderable: true,
+        publishedAt: fixedNow,
+        imageFile: {
+          id: fileId,
+          fileUrl: 'https://example.com/ticket.png',
+        },
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    await expect(service.getPublicProductList(query)).resolves.toMatchObject({
+      items: [
+        {
+          productId,
+          availabilityStatus: 'unavailable',
+        },
+      ],
+    });
+
+    expect(productFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          deletedAt: null,
+          publicationStatus: PublicationStatus.PUBLISHED,
+        },
+      }),
+    );
+  });
+
+  it('should keep manually disabled published products visible as unavailable', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'KSA Hoodie',
+        productType: ProductType.MERCHANDISE,
+        description: 'KSA hoodie.',
+        tokenPrice: 150,
+        stockQuantity: 50,
+        isOrderable: false,
+        publishedAt: fixedNow,
+        imageFile: {
+          id: fileId,
+          fileUrl: 'https://example.com/hoodie.png',
+        },
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    await expect(service.getPublicProductList(query)).resolves.toMatchObject({
+      items: [
+        {
+          availabilityStatus: 'unavailable',
+        },
+      ],
+    });
+  });
+
+  it('should not expose administrator-only product fields', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'KSA Hoodie',
+        productType: ProductType.MERCHANDISE,
+        description: 'KSA hoodie.',
+        tokenPrice: 150,
+        stockQuantity: 20,
+        isOrderable: true,
+        publishedAt: fixedNow,
+        imageFile: {
+          id: fileId,
+          fileUrl: 'https://example.com/hoodie.png',
+        },
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    const response = await service.getPublicProductList(query);
+
+    const item = response.items[0];
+
+    expect(item).not.toHaveProperty('stockQuantity');
+    expect(item).not.toHaveProperty('isOrderable');
+    expect(item).not.toHaveProperty('publicationStatus');
+    expect(item).not.toHaveProperty('deletedAt');
+    expect(item).not.toHaveProperty('createdAt');
+    expect(item).not.toHaveProperty('updatedAt');
+    expect(item).not.toHaveProperty('coreFieldsLocked');
+  });
+
+  it('should return null image when a published product unexpectedly has no image relation', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([
+      {
+        id: productId,
+        name: 'Legacy Product',
+        productType: ProductType.TICKET,
+        description: 'Legacy product.',
+        tokenPrice: 10,
+        stockQuantity: 1,
+        isOrderable: true,
+        publishedAt: fixedNow,
+        imageFile: null,
+      },
+    ]);
+
+    productCountMock.mockResolvedValue(1);
+
+    await expect(service.getPublicProductList(query)).resolves.toMatchObject({
+      items: [
+        {
+          image: null,
+        },
+      ],
+    });
+  });
+
+  it('should return an empty successful public product list', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockResolvedValue([]);
+    productCountMock.mockResolvedValue(0);
+
+    await expect(service.getPublicProductList(query)).resolves.toEqual({
+      items: [],
+      page: 1,
+      limit: 12,
+      totalCount: 0,
+      totalPages: 0,
+    });
+  });
+
+  it('should return a public product list fetch error when the database query fails', async () => {
+    const query: ListPublicProductsQueryDto = {
+      page: 1,
+      limit: 12,
+      sort: PublicProductSort.LATEST,
+    };
+
+    productFindManyMock.mockRejectedValueOnce(new Error('Database failure'));
+
+    productCountMock.mockResolvedValue(0);
+
+    await expect(service.getPublicProductList(query)).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'P500_PUBLIC_PRODUCT_LIST_FETCH_FAILED',
+        message: 'Failed to fetch the public product list',
       },
     });
   });
