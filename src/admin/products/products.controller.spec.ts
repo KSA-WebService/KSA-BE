@@ -11,6 +11,10 @@ import {
   AdminProductSort,
   ListProductsQueryDto,
 } from './dto/list-products-query.dto';
+import {
+  UpdateProductDto,
+  UpdateProductPublicationStatusValue,
+} from './dto/update-product.dto';
 
 describe('ProductsController', () => {
   const productId = '4d2f8c1a-1234-4c11-9f10-abc123456789';
@@ -20,11 +24,13 @@ describe('ProductsController', () => {
   const createProductMock = jest.fn();
   const getProductListMock = jest.fn();
   const getProductDetailMock = jest.fn();
+  const updateProductMock = jest.fn();
 
   const productsServiceMock = {
     createProduct: createProductMock,
     getProductList: getProductListMock,
     getProductDetail: getProductDetailMock,
+    updateProduct: updateProductMock,
   };
 
   const controller = new ProductsController(
@@ -110,5 +116,36 @@ describe('ProductsController', () => {
     expect(getProductListMock).toHaveBeenCalledTimes(1);
 
     expect(getProductListMock).toHaveBeenCalledWith(query);
+  });
+
+  it('should pass the product ID, update DTO, and administrator ID to the service', async () => {
+    const dto: UpdateProductDto = {
+      stockQuantity: 15,
+      isOrderable: false,
+      publicationStatus: UpdateProductPublicationStatusValue.HIDDEN,
+    };
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    };
+
+    const expected = {
+      productId,
+      stockQuantity: 15,
+      isOrderable: false,
+      publicationStatus: 'hidden',
+    };
+
+    updateProductMock.mockResolvedValue(expected);
+
+    await expect(
+      controller.updateProduct(productId, dto, request),
+    ).resolves.toEqual(expected);
+
+    expect(updateProductMock).toHaveBeenCalledTimes(1);
+
+    expect(updateProductMock).toHaveBeenCalledWith(productId, dto, adminId);
   });
 });
