@@ -17,6 +17,7 @@ import { PostsModule } from './admin/posts/posts.module';
 import { PublicPostsModule } from './posts/posts.module';
 import { AdminProductsModule } from './admin/products/products.module';
 import { OrdersModule } from './orders/orders.module';
+import { ActionLogsModule } from './admin/action-logs/action-logs.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { OrdersModule } from './orders/orders.module';
     PublicPostsModule,
     AdminProductsModule,
     OrdersModule,
+    ActionLogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
