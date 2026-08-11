@@ -1,14 +1,17 @@
 import { AdminOrdersController } from './admin-orders.controller';
 import { GetAdminOrdersQueryDto } from './dto/get-admin-orders-query.dto';
 import { OrdersService } from './orders.service';
+import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
 describe('AdminOrdersController', () => {
   let controller: AdminOrdersController;
 
   const getAdminOrdersMock = jest.fn();
+  const updateOrderStatusMock = jest.fn();
 
   const ordersServiceMock = {
     getAdminOrders: getAdminOrdersMock,
+    updateOrderStatus: updateOrderStatusMock,
   };
 
   beforeEach(() => {
@@ -66,5 +69,62 @@ describe('AdminOrdersController', () => {
     await controller.getOrders(query);
 
     expect(getAdminOrdersMock).toHaveBeenCalledWith(query);
+  });
+
+  it('should forward an order status update with the authenticated admin ID', async () => {
+    const orderId = '6c1e9d2a-1234-4c29-81e6-8faec8fbda53';
+
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+    const body: UpdateOrderStatusDto = {
+      orderStatus: 'accepted',
+    };
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    };
+
+    const expected = {
+      orderId,
+      orderStatus: 'accepted',
+    };
+
+    updateOrderStatusMock.mockResolvedValue(expected);
+
+    await expect(
+      controller.updateOrderStatus(orderId, body, request),
+    ).resolves.toEqual(expected);
+
+    expect(updateOrderStatusMock).toHaveBeenCalledTimes(1);
+
+    expect(updateOrderStatusMock).toHaveBeenCalledWith(orderId, body, adminId);
+  });
+
+  it('should forward the cancellation reason to the service', async () => {
+    const orderId = '6c1e9d2a-1234-4c29-81e6-8faec8fbda53';
+
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+
+    const body: UpdateOrderStatusDto = {
+      orderStatus: 'canceled',
+      cancellationReason: 'Item is no longer available',
+    };
+
+    const request = {
+      user: {
+        id: adminId,
+      },
+    };
+
+    updateOrderStatusMock.mockResolvedValue({
+      orderId,
+      orderStatus: 'canceled',
+    });
+
+    await controller.updateOrderStatus(orderId, body, request);
+
+    expect(updateOrderStatusMock).toHaveBeenCalledWith(orderId, body, adminId);
   });
 });

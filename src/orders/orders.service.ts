@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpException,
@@ -13,6 +14,8 @@ import {
   TokenTransactionType,
   UserRole,
   UserStatus,
+  AdminAction,
+  AdminActionType,
 } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -26,6 +29,11 @@ import {
 import { GetAdminOrdersQueryDto } from './dto/get-admin-orders-query.dto';
 
 import { isUUID } from 'class-validator';
+
+import {
+  AdminOrderStatusUpdate,
+  UpdateOrderStatusDto,
+} from './dto/update-order-status.dto';
 
 const MAX_SERIALIZABLE_TRANSACTION_RETRIES = 3;
 const MAX_DATABASE_INT = 2_147_483_647;
@@ -582,6 +590,285 @@ export class OrdersService {
     };
   }
 
+  async updateOrderStatus(
+    orderId: string,
+    dto: UpdateOrderStatusDto,
+    adminId: string,
+  ) {
+    const cancellationReason = dto.cancellationReason?.trim();
+
+    if (dto.orderStatus === 'canceled') {
+      if (!cancellationReason) {
+        throw new BadRequestException({
+          errorCode: 'O400_CANCELLATION_REASON_REQUIRED',
+          message: 'Cancellation reason is required',
+        });
+      }
+
+      if (cancellationReason.length > 255) {
+        throw new BadRequestException({
+          errorCode: 'O400_CANCELLATION_REASON_TOO_LONG',
+          message: 'Cancellation reason must not exceed 255 characters',
+        });
+      }
+    } else if (dto.cancellationReason !== undefined) {
+      throw new BadRequestException({
+        errorCode: 'O400_CANCELLATION_REASON_NOT_ALLOWED',
+        message: 'Cancellation reason is only allowed when canceling an order',
+      });
+    }
+
+    const targetStatus = this.toPrismaAdminOrderStatus(dto.orderStatus);
+
+    try {
+      return await this.runSerializableTransaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: {
+            id: orderId,
+          },
+          select: {
+            id: true,
+            userId: true,
+            productId: true,
+            quantity: true,
+            unitPrice: true,
+            totalAmount: true,
+            status: true,
+            createdAt: true,
+            acceptedAt: true,
+            deliveredAt: true,
+            canceledAt: true,
+            cancellationReason: true,
+            product: {
+              select: {
+                id: true,
+                name: true,
+                stockQuantity: true,
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                studentNumber: true,
+                email: true,
+                tokenBalance: true,
+              },
+            },
+          },
+        });
+
+        if (!order) {
+          throw new NotFoundException({
+            errorCode: 'O404_ORDER_NOT_FOUND',
+            message: 'Order not found',
+          });
+        }
+
+        /*
+         * Same-state requests are treated as safe retries.
+         */
+        if (order.status === targetStatus) {
+          if (targetStatus === OrderStatus.CANCELED) {
+            if (order.cancellationReason !== cancellationReason) {
+              throw new ConflictException({
+                errorCode: 'O409_ORDER_CANCELLATION_CONFLICT',
+                message:
+                  'The order has already been canceled with a different reason',
+              });
+            }
+          }
+
+          return this.formatAdminOrderResponse(order);
+        }
+
+        if (!this.isValidOrderStatusTransition(order.status, targetStatus)) {
+          throw new ConflictException({
+            errorCode: 'O409_INVALID_ORDER_STATUS_TRANSITION',
+            message: `Order cannot transition from ${order.status.toLowerCase()} to ${targetStatus.toLowerCase()}`,
+          });
+        }
+
+        const now = new Date();
+
+        /*
+         * Cancellation reverses the original payment and stock reservation.
+         */
+        if (targetStatus === OrderStatus.CANCELED) {
+          if (order.user.tokenBalance > MAX_DATABASE_INT - order.totalAmount) {
+            throw new ConflictException({
+              errorCode: 'O409_TOKEN_BALANCE_OVERFLOW',
+              message: 'Token refund would exceed the supported token balance',
+            });
+          }
+
+          if (order.product.stockQuantity > MAX_DATABASE_INT - order.quantity) {
+            throw new ConflictException({
+              errorCode: 'O409_PRODUCT_STOCK_OVERFLOW',
+              message:
+                'Stock restoration would exceed the supported stock quantity',
+            });
+          }
+
+          const balanceBefore = order.user.tokenBalance;
+
+          const updatedUser = await tx.user.update({
+            where: {
+              id: order.userId,
+            },
+            data: {
+              tokenBalance: {
+                increment: order.totalAmount,
+              },
+            },
+            select: {
+              tokenBalance: true,
+            },
+          });
+
+          await tx.product.update({
+            where: {
+              id: order.productId,
+            },
+            data: {
+              stockQuantity: {
+                increment: order.quantity,
+              },
+            },
+          });
+
+          await tx.tokenLog.create({
+            data: {
+              transactionType: TokenTransactionType.ORDER_REFUND,
+              adminId: null,
+              userId: order.userId,
+              tokenGrantId: null,
+              orderId: order.id,
+              balanceBefore,
+              balanceAfter: updatedUser.tokenBalance,
+              delta: order.totalAmount,
+              reason: `Order refund - ${order.product.name}`,
+            },
+          });
+        }
+
+        const updatedOrder = await tx.order.update({
+          where: {
+            id: order.id,
+          },
+          data:
+            targetStatus === OrderStatus.ACCEPTED
+              ? {
+                  status: OrderStatus.ACCEPTED,
+                  acceptedAt: now,
+                }
+              : targetStatus === OrderStatus.DELIVERED
+                ? {
+                    status: OrderStatus.DELIVERED,
+                    deliveredAt: now,
+                  }
+                : {
+                    status: OrderStatus.CANCELED,
+                    canceledAt: now,
+                    cancellationReason,
+                  },
+          select: {
+            id: true,
+            quantity: true,
+            unitPrice: true,
+            totalAmount: true,
+            status: true,
+            createdAt: true,
+            acceptedAt: true,
+            deliveredAt: true,
+            canceledAt: true,
+            cancellationReason: true,
+            product: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                studentNumber: true,
+                email: true,
+              },
+            },
+          },
+        });
+
+        await tx.orderStatusLog.create({
+          data: {
+            changedBy: adminId,
+            orderId: order.id,
+            beforeStatus: order.status,
+            afterStatus: targetStatus,
+          },
+        });
+
+        const metadata: Prisma.InputJsonObject = {
+          beforeStatus: order.status.toLowerCase(),
+          afterStatus: targetStatus.toLowerCase(),
+          ...(targetStatus === OrderStatus.CANCELED && cancellationReason
+            ? {
+                cancellationReason,
+              }
+            : {}),
+        };
+
+        await tx.adminActionLog.create({
+          data: {
+            adminId,
+            actionType: AdminActionType.ORDER,
+            action: AdminAction.UPDATE_ORDER_STATUS,
+            targetId: order.id,
+            metadata,
+          },
+        });
+
+        return this.formatAdminOrderResponse(updatedOrder);
+      });
+    } catch (error: unknown) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      /*
+       * A concurrent duplicate refund may reach the unique
+       * (orderId, transactionType) constraint.
+       *
+       * Re-read the committed order and treat an identical cancellation
+       * as a successful retry.
+       */
+      const isUniqueConstraintError =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002';
+
+      if (
+        isUniqueConstraintError &&
+        dto.orderStatus === 'canceled' &&
+        cancellationReason
+      ) {
+        const existingOrder = await this.findAdminOrderById(orderId);
+
+        if (
+          existingOrder?.status === OrderStatus.CANCELED &&
+          existingOrder.cancellationReason === cancellationReason
+        ) {
+          return this.formatAdminOrderResponse(existingOrder);
+        }
+      }
+
+      throw new InternalServerErrorException({
+        errorCode: 'O500_ORDER_STATUS_UPDATE_FAILED',
+        message: 'Failed to update order status',
+      });
+    }
+  }
+
   private async findOrderByIdempotencyKey(
     idempotencyKey: string,
   ): Promise<ExistingOrder | null> {
@@ -721,5 +1008,121 @@ export class OrdersService {
       case 'canceled':
         return OrderStatus.CANCELED;
     }
+  }
+
+  private isValidOrderStatusTransition(
+    currentStatus: OrderStatus,
+    targetStatus: OrderStatus,
+  ): boolean {
+    if (currentStatus === OrderStatus.ORDERED) {
+      return (
+        targetStatus === OrderStatus.ACCEPTED ||
+        targetStatus === OrderStatus.CANCELED
+      );
+    }
+
+    if (currentStatus === OrderStatus.ACCEPTED) {
+      return (
+        targetStatus === OrderStatus.DELIVERED ||
+        targetStatus === OrderStatus.CANCELED
+      );
+    }
+
+    return false;
+  }
+
+  private toPrismaAdminOrderStatus(
+    orderStatus: AdminOrderStatusUpdate,
+  ): OrderStatus {
+    switch (orderStatus) {
+      case 'accepted':
+        return OrderStatus.ACCEPTED;
+
+      case 'delivered':
+        return OrderStatus.DELIVERED;
+
+      case 'canceled':
+        return OrderStatus.CANCELED;
+    }
+  }
+
+  private findAdminOrderById(orderId: string) {
+    return this.prisma.order.findUnique({
+      where: {
+        id: orderId,
+      },
+      select: {
+        id: true,
+        quantity: true,
+        unitPrice: true,
+        totalAmount: true,
+        status: true,
+        createdAt: true,
+        acceptedAt: true,
+        deliveredAt: true,
+        canceledAt: true,
+        cancellationReason: true,
+        product: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            studentNumber: true,
+            email: true,
+          },
+        },
+      },
+    });
+  }
+
+  private formatAdminOrderResponse(order: {
+    id: string;
+    quantity: number;
+    unitPrice: number;
+    totalAmount: number;
+    status: OrderStatus;
+    createdAt: Date;
+    acceptedAt: Date | null;
+    deliveredAt: Date | null;
+    canceledAt: Date | null;
+    cancellationReason: string | null;
+    product: {
+      id: string;
+      name: string;
+    };
+    user: {
+      id: string;
+      name: string;
+      studentNumber: string;
+      email: string;
+    };
+  }) {
+    return {
+      orderId: order.id,
+      product: {
+        productId: order.product.id,
+        productName: order.product.name,
+      },
+      customer: {
+        userId: order.user.id,
+        customerName: order.user.name,
+        studentNumber: order.user.studentNumber,
+        email: order.user.email,
+      },
+      quantity: order.quantity,
+      unitPrice: order.unitPrice,
+      totalAmount: order.totalAmount,
+      orderStatus: order.status.toLowerCase(),
+      orderedAt: order.createdAt,
+      acceptedAt: order.acceptedAt,
+      deliveredAt: order.deliveredAt,
+      canceledAt: order.canceledAt,
+      cancellationReason: order.cancellationReason,
+    };
   }
 }

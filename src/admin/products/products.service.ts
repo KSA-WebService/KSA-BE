@@ -99,6 +99,8 @@ const PUBLIC_PRODUCT_TYPE_FILTER_MAP: Record<
   [PublicProductTypeFilter.TICKET]: ProductType.TICKET,
   [PublicProductTypeFilter.MERCHANDISE]: ProductType.MERCHANDISE,
 };
+
+const MAX_SERIALIZABLE_TRANSACTION_RETRIES = 3;
 @Injectable()
 export class ProductsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -127,7 +129,7 @@ export class ProductsService {
     const publishedAt = isPublished ? new Date() : null;
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      return await this.runSerializableTransaction(async (tx) => {
         if (dto.imageFileId) {
           const imageFile = await tx.file.findFirst({
             where: {
@@ -618,9 +620,6 @@ export class ProductsService {
 
         const finalTokenPrice = dto.tokenPrice ?? existingProduct.tokenPrice;
 
-        const finalStockQuantity =
-          dto.stockQuantity ?? existingProduct.stockQuantity;
-
         const finalIsOrderable = dto.isOrderable ?? existingProduct.isOrderable;
 
         const finalDescription =
@@ -781,7 +780,11 @@ export class ProductsService {
           data: {
             name: finalProductName,
             tokenPrice: finalTokenPrice,
-            stockQuantity: finalStockQuantity,
+            ...(dto.stockQuantity !== undefined
+              ? {
+                  stockQuantity: dto.stockQuantity,
+                }
+              : {}),
             isOrderable: finalIsOrderable,
             description: finalDescription,
             imageFileId: finalImageFileId,
@@ -857,5 +860,43 @@ export class ProductsService {
         message: 'Failed to update the product',
       });
     }
+  }
+
+  private async runSerializableTransaction<T>(
+    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    for (
+      let attempt = 1;
+      attempt <= MAX_SERIALIZABLE_TRANSACTION_RETRIES;
+      attempt += 1
+    ) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error: unknown) {
+        const isTransactionConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034';
+
+        if (!isTransactionConflict) {
+          throw error;
+        }
+
+        if (attempt === MAX_SERIALIZABLE_TRANSACTION_RETRIES) {
+          throw new ConflictException({
+            errorCode: 'P409_PRODUCT_CONCURRENT_UPDATE',
+            message:
+              'Product could not be updated due to a concurrent update. Please try again',
+          });
+        }
+      }
+    }
+
+    throw new ConflictException({
+      errorCode: 'P409_PRODUCT_CONCURRENT_UPDATE',
+      message:
+        'Product could not be updated due to a concurrent update. Please try again',
+    });
   }
 }
