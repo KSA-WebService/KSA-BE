@@ -18,6 +18,11 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 
+import {
+  GetMyOrdersQueryDto,
+  UserOrderStatus,
+} from './dto/get-my-orders-query.dto';
+
 const MAX_SERIALIZABLE_TRANSACTION_RETRIES = 3;
 const MAX_DATABASE_INT = 2_147_483_647;
 
@@ -359,6 +364,83 @@ export class OrdersService {
     }
   }
 
+  async getMyOrders(userId: string, query: GetMyOrdersQueryDto) {
+    const { page, limit, orderStatus, sort } = query;
+
+    const where: Prisma.OrderWhereInput = {
+      userId,
+      ...(orderStatus
+        ? {
+            status: this.toPrismaOrderStatus(orderStatus),
+          }
+        : {}),
+    };
+
+    const sortDirection = sort === 'oldest' ? 'asc' : 'desc';
+
+    const [orders, total] = await this.prisma.$transaction([
+      this.prisma.order.findMany({
+        where,
+        select: {
+          id: true,
+          quantity: true,
+          unitPrice: true,
+          totalAmount: true,
+          status: true,
+          createdAt: true,
+          acceptedAt: true,
+          deliveredAt: true,
+          canceledAt: true,
+          cancellationReason: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: [
+          {
+            createdAt: sortDirection,
+          },
+          {
+            id: sortDirection,
+          },
+        ],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.order.count({
+        where,
+      }),
+    ]);
+
+    return {
+      items: orders.map((order) => ({
+        orderId: order.id,
+        product: {
+          productId: order.product.id,
+          productName: order.product.name,
+        },
+        quantity: order.quantity,
+        unitPrice: order.unitPrice,
+        totalAmount: order.totalAmount,
+        orderStatus: order.status.toLowerCase(),
+        orderedAt: order.createdAt,
+        acceptedAt: order.acceptedAt,
+        deliveredAt: order.deliveredAt,
+        canceledAt: order.canceledAt,
+        cancellationReason: order.cancellationReason,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
+  }
+
   private async findOrderByIdempotencyKey(
     idempotencyKey: string,
   ): Promise<ExistingOrder | null> {
@@ -482,5 +564,21 @@ export class OrdersService {
       message:
         'Order could not be completed due to a concurrent update. Please try again',
     });
+  }
+
+  private toPrismaOrderStatus(orderStatus: UserOrderStatus): OrderStatus {
+    switch (orderStatus) {
+      case 'ordered':
+        return OrderStatus.ORDERED;
+
+      case 'accepted':
+        return OrderStatus.ACCEPTED;
+
+      case 'delivered':
+        return OrderStatus.DELIVERED;
+
+      case 'canceled':
+        return OrderStatus.CANCELED;
+    }
   }
 }
