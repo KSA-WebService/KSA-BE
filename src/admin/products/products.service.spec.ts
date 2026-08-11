@@ -1512,7 +1512,6 @@ describe('ProductsService', () => {
         data: {
           name: 'KSA Hoodie',
           tokenPrice: 150,
-          stockQuantity: 20,
           isOrderable: true,
           description: 'Official KSA hoodie for HKUST students.',
           imageFileId: fileId,
@@ -1670,7 +1669,6 @@ describe('ProductsService', () => {
         data: {
           name: 'KSA Hoodie',
           tokenPrice: 150,
-          stockQuantity: 20,
           isOrderable: true,
           description: 'Official KSA hoodie for HKUST students.',
           imageFileId: newFileId,
@@ -1746,7 +1744,6 @@ describe('ProductsService', () => {
         data: {
           name: 'KSA Hoodie',
           tokenPrice: 150,
-          stockQuantity: 20,
           isOrderable: true,
           description: 'Official KSA hoodie for HKUST students.',
           imageFileId: fileId,
