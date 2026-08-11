@@ -23,6 +23,10 @@ import {
   UserOrderStatus,
 } from './dto/get-my-orders-query.dto';
 
+import { GetAdminOrdersQueryDto } from './dto/get-admin-orders-query.dto';
+
+import { isUUID } from 'class-validator';
+
 const MAX_SERIALIZABLE_TRANSACTION_RETRIES = 3;
 const MAX_DATABASE_INT = 2_147_483_647;
 
@@ -421,6 +425,143 @@ export class OrdersService {
         product: {
           productId: order.product.id,
           productName: order.product.name,
+        },
+        quantity: order.quantity,
+        unitPrice: order.unitPrice,
+        totalAmount: order.totalAmount,
+        orderStatus: order.status.toLowerCase(),
+        orderedAt: order.createdAt,
+        acceptedAt: order.acceptedAt,
+        deliveredAt: order.deliveredAt,
+        canceledAt: order.canceledAt,
+        cancellationReason: order.cancellationReason,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getAdminOrders(query: GetAdminOrdersQueryDto) {
+    const { page, limit, keyword, orderStatus, sort } = query;
+
+    const normalizedKeyword = keyword?.trim();
+
+    const where: Prisma.OrderWhereInput = {
+      ...(orderStatus
+        ? {
+            status: this.toPrismaOrderStatus(orderStatus),
+          }
+        : {}),
+    };
+
+    if (normalizedKeyword) {
+      const keywordConditions: Prisma.OrderWhereInput[] = [
+        {
+          product: {
+            name: {
+              contains: normalizedKeyword,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          user: {
+            name: {
+              contains: normalizedKeyword,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          user: {
+            studentNumber: {
+              contains: normalizedKeyword,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          user: {
+            email: {
+              contains: normalizedKeyword,
+              mode: 'insensitive',
+            },
+          },
+        },
+      ];
+
+      if (isUUID(normalizedKeyword)) {
+        keywordConditions.unshift({
+          id: normalizedKeyword,
+        });
+      }
+
+      where.OR = keywordConditions;
+    }
+
+    const sortDirection = sort === 'oldest' ? 'asc' : 'desc';
+
+    const [orders, total] = await this.prisma.$transaction([
+      this.prisma.order.findMany({
+        where,
+        select: {
+          id: true,
+          quantity: true,
+          unitPrice: true,
+          totalAmount: true,
+          status: true,
+          createdAt: true,
+          acceptedAt: true,
+          deliveredAt: true,
+          canceledAt: true,
+          cancellationReason: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              studentNumber: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: [
+          {
+            createdAt: sortDirection,
+          },
+          {
+            id: sortDirection,
+          },
+        ],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.order.count({
+        where,
+      }),
+    ]);
+
+    return {
+      items: orders.map((order) => ({
+        orderId: order.id,
+        product: {
+          productId: order.product.id,
+          productName: order.product.name,
+        },
+        customer: {
+          userId: order.user.id,
+          customerName: order.user.name,
+          studentNumber: order.user.studentNumber,
+          email: order.user.email,
         },
         quantity: order.quantity,
         unitPrice: order.unitPrice,
