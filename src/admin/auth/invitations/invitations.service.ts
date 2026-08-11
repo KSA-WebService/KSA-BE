@@ -227,6 +227,7 @@ export class InvitationsService {
           name: whitelistUser.name,
           invitationUrl,
           expiresAt,
+          idempotencyKey: `invitation/${invitation.id}`,
         });
       } catch {
         /*
@@ -511,6 +512,7 @@ export class InvitationsService {
           name: whitelistUser.name,
           invitationUrl,
           expiresAt,
+          idempotencyKey: `invitation/${invitation.id}`,
         });
       } catch {
         /*
