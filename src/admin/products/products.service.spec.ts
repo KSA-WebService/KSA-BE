@@ -872,10 +872,12 @@ describe('ProductsService', () => {
           updatedAt: fixedNow,
         },
       ],
-      page: 1,
-      limit: 20,
-      totalCount: 1,
-      totalPages: 1,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 1,
+        totalPages: 1,
+      },
     });
 
     expect(productFindManyMock).toHaveBeenCalledWith({
@@ -939,10 +941,10 @@ describe('ProductsService', () => {
       }),
     );
 
-    expect(result.page).toBe(3);
-    expect(result.limit).toBe(10);
-    expect(result.totalCount).toBe(45);
-    expect(result.totalPages).toBe(5);
+    expect(result.pagination.page).toBe(3);
+    expect(result.pagination.limit).toBe(10);
+    expect(result.pagination.total).toBe(45);
+    expect(result.pagination.totalPages).toBe(5);
   });
 
   it('should filter products by a case-insensitive name keyword', async () => {
@@ -1226,10 +1228,12 @@ describe('ProductsService', () => {
 
     await expect(service.getProductList(query)).resolves.toEqual({
       items: [],
-      page: 1,
-      limit: 20,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      },
     });
   });
 
@@ -1888,10 +1892,12 @@ describe('ProductsService', () => {
           publishedAt: fixedNow,
         },
       ],
-      page: 1,
-      limit: 12,
-      totalCount: 1,
-      totalPages: 1,
+      pagination: {
+        page: 1,
+        limit: 12,
+        total: 1,
+        totalPages: 1,
+      },
     });
 
     expect(productFindManyMock).toHaveBeenCalledWith({
@@ -1949,10 +1955,12 @@ describe('ProductsService', () => {
     productCountMock.mockResolvedValue(14);
 
     await expect(service.getPublicProductList(query)).resolves.toMatchObject({
-      page: 2,
-      limit: 6,
-      totalCount: 14,
-      totalPages: 3,
+      pagination: {
+        page: 2,
+        limit: 6,
+        total: 14,
+        totalPages: 3,
+      },
     });
 
     expect(productFindManyMock).toHaveBeenCalledWith(
@@ -2208,10 +2216,12 @@ describe('ProductsService', () => {
 
     await expect(service.getPublicProductList(query)).resolves.toEqual({
       items: [],
-      page: 1,
-      limit: 12,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 1,
+        limit: 12,
+        total: 0,
+        totalPages: 0,
+      },
     });
   });
 

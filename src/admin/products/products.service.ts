@@ -361,10 +361,12 @@ export class ProductsService {
             : null,
           updatedAt: product.updatedAt,
         })),
-        page,
-        limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+        },
       };
     } catch {
       throw new InternalServerErrorException({
@@ -445,10 +447,12 @@ export class ProductsService {
               : 'unavailable',
           publishedAt: product.publishedAt,
         })),
-        page,
-        limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+        },
       };
     } catch {
       throw new InternalServerErrorException({

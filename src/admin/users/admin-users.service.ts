@@ -103,10 +103,12 @@ export class AdminUsersService {
         status: user.status,
         createdAt: user.createdAt,
       })),
-      page,
-      limit,
-      totalCount,
-      totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+      },
     };
   }
 

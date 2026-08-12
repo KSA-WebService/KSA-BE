@@ -116,7 +116,7 @@ export class PublicPostsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getPostList(query: GetPublicPostListQueryDto) {
-    const { keyword, category, period, page, size, sort } = query;
+    const { keyword, category, period, page, limit, sort } = query;
 
     const normalizedKeyword = keyword?.trim() || undefined;
 
@@ -153,8 +153,8 @@ export class PublicPostsService {
       const [posts, totalCount] = await this.prisma.$transaction([
         this.prisma.contentPost.findMany({
           where,
-          skip: (page - 1) * size,
-          take: size,
+          skip: (page - 1) * limit,
+          take: limit,
           orderBy: [
             {
               publishedAt: sortDirection,
@@ -174,7 +174,7 @@ export class PublicPostsService {
       ]);
 
       return {
-        posts: posts.map((post) => {
+        items: posts.map((post) => {
           const representativeImage = post.images[0];
 
           return {
@@ -195,10 +195,12 @@ export class PublicPostsService {
             publishedAt: post.publishedAt,
           };
         }),
-        page,
-        size,
-        totalCount,
-        totalPages: Math.ceil(totalCount / size),
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+        },
       };
     } catch {
       throw new InternalServerErrorException({

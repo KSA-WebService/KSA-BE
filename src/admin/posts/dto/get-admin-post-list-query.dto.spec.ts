@@ -17,7 +17,7 @@ describe('GetAdminPostListQueryDto', () => {
 
     expect(errors).toHaveLength(0);
     expect(dto.page).toBe(1);
-    expect(dto.size).toBe(10);
+    expect(dto.limit).toBe(10);
     expect(dto.sort).toBe(AdminPostSortValue.LATEST);
   });
 
@@ -27,7 +27,7 @@ describe('GetAdminPostListQueryDto', () => {
       category: ContentPostCategoryValue.EVENT,
       status: AdminContentPostStatusValue.PUBLISHED,
       page: '2',
-      size: '20',
+      limit: '20',
       sort: AdminPostSortValue.OLDEST,
     });
 
@@ -36,7 +36,7 @@ describe('GetAdminPostListQueryDto', () => {
     expect(errors).toHaveLength(0);
     expect(dto.keyword).toBe('Orientation');
     expect(dto.page).toBe(2);
-    expect(dto.size).toBe(20);
+    expect(dto.limit).toBe(20);
     expect(dto.category).toBe(ContentPostCategoryValue.EVENT);
     expect(dto.status).toBe(AdminContentPostStatusValue.PUBLISHED);
     expect(dto.sort).toBe(AdminPostSortValue.OLDEST);
@@ -56,16 +56,29 @@ describe('GetAdminPostListQueryDto', () => {
     );
   });
 
-  it('should reject invalid pagination values', async () => {
+  it('should reject pagination values outside the allowed range', async () => {
     const dto = plainToInstance(GetAdminPostListQueryDto, {
       page: '0',
-      size: '101',
+      limit: '101',
     });
 
     const errors = await validate(dto);
 
     expect(errors.map((error) => error.property)).toEqual(
-      expect.arrayContaining(['page', 'size']),
+      expect.arrayContaining(['page', 'limit']),
+    );
+  });
+
+  it('should reject non-integer pagination values', async () => {
+    const dto = plainToInstance(GetAdminPostListQueryDto, {
+      page: '1.5',
+      limit: '10.5',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((error) => error.property)).toEqual(
+      expect.arrayContaining(['page', 'limit']),
     );
   });
 });

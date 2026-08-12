@@ -110,10 +110,12 @@ describe('TokenEventsController', () => {
 
     const result = {
       items: [],
-      page: 1,
-      limit: 20,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      },
     };
 
     tokenEventsServiceMock.findAll.mockResolvedValue(result);
@@ -146,10 +148,12 @@ describe('TokenEventsController', () => {
       lastGrantUpdatedAt: null,
       grantedMemberCount: 0,
       items: [],
-      page: 1,
-      limit: 20,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      },
     };
 
     tokenEventsServiceMock.findOne.mockResolvedValue(result);

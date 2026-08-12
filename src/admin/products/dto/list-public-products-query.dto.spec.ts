@@ -81,14 +81,25 @@ describe('ListPublicProductsQueryDto', () => {
     expect(errors.map((error) => error.property)).toContain('limit');
   });
 
-  it('should reject limit values above fifty', async () => {
+  it('should reject limit values above one hundred', async () => {
     const dto = plainToInstance(ListPublicProductsQueryDto, {
-      limit: 51,
+      limit: 101,
     });
 
     const errors = await validate(dto);
 
     expect(errors.map((error) => error.property)).toContain('limit');
+  });
+
+  it('should allow a limit of one hundred', async () => {
+    const dto = plainToInstance(ListPublicProductsQueryDto, {
+      limit: 100,
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors).toHaveLength(0);
+    expect(dto.limit).toBe(100);
   });
 
   it('should reject an unsupported product type', async () => {

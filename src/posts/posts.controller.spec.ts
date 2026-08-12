@@ -29,16 +29,18 @@ describe('PublicPostsController', () => {
     const query: GetPublicPostListQueryDto = {
       period: PublicPostPeriodValue.ALL,
       page: 1,
-      size: 10,
+      limit: 10,
       sort: PublicPostSortValue.LATEST,
     };
 
     const expected = {
-      posts: [],
-      page: 1,
-      size: 10,
-      totalCount: 0,
-      totalPages: 0,
+      items: [],
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 0,
+        totalPages: 0,
+      },
     };
 
     getPostListMock.mockResolvedValue(expected);
