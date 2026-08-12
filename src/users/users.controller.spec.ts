@@ -90,10 +90,12 @@ describe('UsersController', () => {
     const expected = {
       currentTokenBalance: 5,
       items: [],
-      page: 2,
-      limit: 20,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 2,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      },
     };
 
     usersServiceMock.findMyTokenLogs.mockResolvedValue(expected);

@@ -122,12 +122,12 @@ describe('PublicPostsService', () => {
     const query: GetPublicPostListQueryDto = {
       period: PublicPostPeriodValue.ALL,
       page: 1,
-      size: 10,
+      limit: 10,
       sort: PublicPostSortValue.LATEST,
     };
 
     await expect(service.getPostList(query)).resolves.toEqual({
-      posts: [
+      items: [
         {
           postId,
           title: 'Orientation Day',
@@ -145,10 +145,12 @@ describe('PublicPostsService', () => {
           publishedAt,
         },
       ],
-      page: 1,
-      size: 10,
-      totalCount: 1,
-      totalPages: 1,
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 1,
+        totalPages: 1,
+      },
     });
 
     expect(contentPostFindManyMock).toHaveBeenCalledWith(
@@ -208,13 +210,13 @@ describe('PublicPostsService', () => {
     const result = await service.getPostList({
       period: PublicPostPeriodValue.ALL,
       page: 1,
-      size: 10,
+      limit: 10,
       sort: PublicPostSortValue.LATEST,
     });
 
-    expect(result.posts[0].representativeImage).toBeNull();
+    expect(result.items[0].representativeImage).toBeNull();
 
-    expect(result.posts[0]).toMatchObject({
+    expect(result.items[0]).toMatchObject({
       membersOnly: true,
       eventStartAt: null,
       eventEndAt: null,
@@ -233,16 +235,18 @@ describe('PublicPostsService', () => {
       category: PublicContentPostCategoryValue.EVENT,
       period: PublicPostPeriodValue.ALL,
       page: 2,
-      size: 5,
+      limit: 5,
       sort: PublicPostSortValue.OLDEST,
     };
 
     await expect(service.getPostList(query)).resolves.toEqual({
-      posts: [],
-      page: 2,
-      size: 5,
-      totalCount: 0,
-      totalPages: 0,
+      items: [],
+      pagination: {
+        page: 2,
+        limit: 5,
+        total: 0,
+        totalPages: 0,
+      },
     });
 
     const expectedWhere = {
@@ -293,7 +297,7 @@ describe('PublicPostsService', () => {
     await service.getPostList({
       period: PublicPostPeriodValue.UPCOMING,
       page: 1,
-      size: 10,
+      limit: 10,
       sort: PublicPostSortValue.LATEST,
     });
 
@@ -339,7 +343,7 @@ describe('PublicPostsService', () => {
     await service.getPostList({
       period: PublicPostPeriodValue.PAST,
       page: 1,
-      size: 10,
+      limit: 10,
       sort: PublicPostSortValue.LATEST,
     });
 
@@ -385,7 +389,7 @@ describe('PublicPostsService', () => {
     await service.getPostList({
       period: PublicPostPeriodValue.UNDATED,
       page: 1,
-      size: 10,
+      limit: 10,
       sort: PublicPostSortValue.LATEST,
     });
 
@@ -416,12 +420,12 @@ describe('PublicPostsService', () => {
     const result = await service.getPostList({
       period: PublicPostPeriodValue.ALL,
       page: 1,
-      size: 10,
+      limit: 10,
       sort: PublicPostSortValue.LATEST,
     });
 
-    expect(result.totalCount).toBe(21);
-    expect(result.totalPages).toBe(3);
+    expect(result.pagination.total).toBe(21);
+    expect(result.pagination.totalPages).toBe(3);
   });
 
   it('should return a list fetch error when the database transaction fails', async () => {
@@ -435,7 +439,7 @@ describe('PublicPostsService', () => {
       service.getPostList({
         period: PublicPostPeriodValue.ALL,
         page: 1,
-        size: 10,
+        limit: 10,
         sort: PublicPostSortValue.LATEST,
       }),
     ).rejects.toMatchObject({

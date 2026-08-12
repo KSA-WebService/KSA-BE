@@ -555,7 +555,7 @@ export class PostsService {
   }
 
   async getPostList(query: GetAdminPostListQueryDto) {
-    const { keyword, category, status, page, size, sort } = query;
+    const { keyword, category, status, page, limit, sort } = query;
 
     const normalizedKeyword = keyword?.trim() || undefined;
 
@@ -589,8 +589,8 @@ export class PostsService {
       const [posts, totalCount] = await this.prisma.$transaction([
         this.prisma.contentPost.findMany({
           where,
-          skip: (page - 1) * size,
-          take: size,
+          skip: (page - 1) * limit,
+          take: limit,
           orderBy: {
             createdAt: sort === AdminPostSortValue.OLDEST ? 'asc' : 'desc',
           },
@@ -602,7 +602,7 @@ export class PostsService {
       ]);
 
       return {
-        posts: posts.map((post) => {
+        items: posts.map((post) => {
           const representativeImage = post.images[0];
 
           return {
@@ -632,10 +632,12 @@ export class PostsService {
             updatedAt: post.updatedAt,
           };
         }),
-        page,
-        size,
-        totalCount,
-        totalPages: Math.ceil(totalCount / size),
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+        },
       };
     } catch (error: unknown) {
       if (error instanceof HttpException) {

@@ -262,10 +262,12 @@ describe('TokenEventsService', () => {
           grantedMemberCount: 0,
         },
       ],
-      page: 1,
-      limit: 20,
-      totalCount: 2,
-      totalPages: 1,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 2,
+        totalPages: 1,
+      },
     });
 
     expect(tokenEventFindManyMock).toHaveBeenCalledWith({
@@ -350,10 +352,12 @@ describe('TokenEventsService', () => {
       }),
     ).resolves.toEqual({
       items: [],
-      page: 3,
-      limit: 20,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 3,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      },
     });
 
     expect(tokenEventFindManyMock).toHaveBeenCalledWith(
@@ -491,10 +495,12 @@ describe('TokenEventsService', () => {
           grantUpdatedAt,
         },
       ],
-      page: 1,
-      limit: 20,
-      totalCount: 2,
-      totalPages: 1,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 2,
+        totalPages: 1,
+      },
     });
 
     expect(tokenEventFindFirstMock).toHaveBeenCalledWith({

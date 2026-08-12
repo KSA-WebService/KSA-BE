@@ -45,10 +45,12 @@ describe('PublicProductsController', () => {
 
     const expected = {
       items: [],
-      page: 1,
-      limit: 12,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 1,
+        limit: 12,
+        total: 0,
+        totalPages: 0,
+      },
     };
 
     getPublicProductListMock.mockResolvedValue(expected);

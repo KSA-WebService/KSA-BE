@@ -50,7 +50,7 @@ export class GetAdminPostListQueryDto {
   @IsInt()
   @Min(1)
   @Max(100)
-  size = 10;
+  limit = 10;
 
   @IsOptional()
   @IsEnum(AdminPostSortValue)

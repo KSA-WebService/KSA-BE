@@ -103,10 +103,12 @@ describe('ProductsController', () => {
 
     const expected = {
       items: [],
-      page: 1,
-      limit: 20,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      },
     };
 
     getProductListMock.mockResolvedValue(expected);

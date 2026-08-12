@@ -218,10 +218,12 @@ describe('UsersService', () => {
           order: null,
         },
       ],
-      page: 1,
-      limit: 20,
-      totalCount: 3,
-      totalPages: 1,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 3,
+        totalPages: 1,
+      },
     });
 
     expect(userFindFirstMock).toHaveBeenCalledWith({
@@ -312,10 +314,12 @@ describe('UsersService', () => {
     ).resolves.toEqual({
       currentTokenBalance: 0,
       items: [],
-      page: 1,
-      limit: 20,
-      totalCount: 0,
-      totalPages: 0,
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      },
     });
   });
 

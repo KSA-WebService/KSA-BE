@@ -19,7 +19,7 @@ describe('GetPublicPostListQueryDto', () => {
     expect(errors).toHaveLength(0);
     expect(dto.period).toBe(PublicPostPeriodValue.ALL);
     expect(dto.page).toBe(1);
-    expect(dto.size).toBe(10);
+    expect(dto.limit).toBe(10);
     expect(dto.sort).toBe(PublicPostSortValue.LATEST);
   });
 
@@ -29,7 +29,7 @@ describe('GetPublicPostListQueryDto', () => {
       category: PublicContentPostCategoryValue.EVENT,
       period: PublicPostPeriodValue.UPCOMING,
       page: '2',
-      size: '20',
+      limit: '20',
       sort: PublicPostSortValue.OLDEST,
     });
 
@@ -40,7 +40,7 @@ describe('GetPublicPostListQueryDto', () => {
     expect(dto.category).toBe(PublicContentPostCategoryValue.EVENT);
     expect(dto.period).toBe(PublicPostPeriodValue.UPCOMING);
     expect(dto.page).toBe(2);
-    expect(dto.size).toBe(20);
+    expect(dto.limit).toBe(20);
     expect(dto.sort).toBe(PublicPostSortValue.OLDEST);
   });
 
@@ -58,29 +58,42 @@ describe('GetPublicPostListQueryDto', () => {
     );
   });
 
-  it('should reject invalid pagination values', async () => {
+  it('should reject pagination values outside the allowed range', async () => {
     const dto = plainToInstance(GetPublicPostListQueryDto, {
       page: '0',
-      size: '101',
+      limit: '101',
     });
 
     const errors = await validate(dto);
 
     expect(errors.map((error) => error.property)).toEqual(
-      expect.arrayContaining(['page', 'size']),
+      expect.arrayContaining(['page', 'limit']),
     );
   });
 
   it('should reject non-numeric pagination values', async () => {
     const dto = plainToInstance(GetPublicPostListQueryDto, {
       page: 'abc',
-      size: 'test',
+      limit: 'test',
     });
 
     const errors = await validate(dto);
 
     expect(errors.map((error) => error.property)).toEqual(
-      expect.arrayContaining(['page', 'size']),
+      expect.arrayContaining(['page', 'limit']),
+    );
+  });
+
+  it('should reject non-integer pagination values', async () => {
+    const dto = plainToInstance(GetPublicPostListQueryDto, {
+      page: '1.5',
+      limit: '10.5',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((error) => error.property)).toEqual(
+      expect.arrayContaining(['page', 'limit']),
     );
   });
 });

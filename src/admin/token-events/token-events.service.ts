@@ -198,10 +198,12 @@ export class TokenEventsService {
           grantedMemberCount:
             grantedMemberCountByEventId.get(tokenEvent.id) ?? 0,
         })),
-        page,
-        limit,
-        totalCount,
-        totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+        },
       };
     });
   }
@@ -428,10 +430,12 @@ export class TokenEventsService {
             grantUpdatedAt: tokenGrant?.updatedAt ?? null,
           };
         }),
-        page,
-        limit,
-        totalCount,
-        totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / limit),
+        },
       };
     });
   }

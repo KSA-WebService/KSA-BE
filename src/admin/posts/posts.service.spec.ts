@@ -951,12 +951,11 @@ describe('PostsService', () => {
 
     const query: GetAdminPostListQueryDto = {
       page: 1,
-      size: 10,
+      limit: 10,
       sort: AdminPostSortValue.LATEST,
     };
-
     await expect(service.getPostList(query)).resolves.toEqual({
-      posts: [
+      items: [
         {
           postId,
           title: 'Orientation Day',
@@ -983,10 +982,12 @@ describe('PostsService', () => {
           updatedAt,
         },
       ],
-      page: 1,
-      size: 10,
-      totalCount: 1,
-      totalPages: 1,
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 1,
+        totalPages: 1,
+      },
     });
 
     expect(contentPostFindManyMock).toHaveBeenCalledWith(
@@ -1023,16 +1024,18 @@ describe('PostsService', () => {
       category: ContentPostCategoryValue.EVENT,
       status: AdminContentPostStatusValue.PUBLISHED,
       page: 2,
-      size: 5,
+      limit: 5,
       sort: AdminPostSortValue.OLDEST,
     };
 
     await expect(service.getPostList(query)).resolves.toEqual({
-      posts: [],
-      page: 2,
-      size: 5,
-      totalCount: 0,
-      totalPages: 0,
+      items: [],
+      pagination: {
+        page: 2,
+        limit: 5,
+        total: 0,
+        totalPages: 0,
+      },
     });
 
     const expectedWhere = {
@@ -1099,15 +1102,15 @@ describe('PostsService', () => {
 
     const query: GetAdminPostListQueryDto = {
       page: 1,
-      size: 10,
+      limit: 10,
       sort: AdminPostSortValue.LATEST,
     };
 
     const result = await service.getPostList(query);
 
-    expect(result.posts[0].representativeImage).toBeNull();
+    expect(result.items[0].representativeImage).toBeNull();
 
-    expect(result.posts[0]).toMatchObject({
+    expect(result.items[0]).toMatchObject({
       status: CreateContentPostStatus.DRAFT,
       publishedAt: null,
       eventStartAt: null,
@@ -1149,11 +1152,11 @@ describe('PostsService', () => {
 
     const result = await service.getPostList({
       page: 1,
-      size: 10,
+      limit: 10,
       sort: AdminPostSortValue.LATEST,
     });
 
-    expect(result.posts[0].status).toBe('hidden');
+    expect(result.items[0].status).toBe('hidden');
   });
 
   it('should calculate the total number of pages', async () => {
@@ -1165,12 +1168,11 @@ describe('PostsService', () => {
 
     const result = await service.getPostList({
       page: 1,
-      size: 10,
+      limit: 10,
       sort: AdminPostSortValue.LATEST,
     });
-
-    expect(result.totalCount).toBe(21);
-    expect(result.totalPages).toBe(3);
+    expect(result.pagination.total).toBe(21);
+    expect(result.pagination.totalPages).toBe(3);
   });
 
   it('should return a list fetch error when the database transaction fails', async () => {
@@ -1183,7 +1185,7 @@ describe('PostsService', () => {
     await expect(
       service.getPostList({
         page: 1,
-        size: 10,
+        limit: 10,
         sort: AdminPostSortValue.LATEST,
       }),
     ).rejects.toMatchObject({
