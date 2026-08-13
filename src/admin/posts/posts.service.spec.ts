@@ -4,6 +4,7 @@ import {
   ContentPostCategoryType,
   FilePurpose,
   FileStatus,
+  Prisma,
   PublicationStatus,
 } from '@prisma/client';
 
@@ -189,6 +190,13 @@ describe('PostsService', () => {
         },
       },
     });
+
+    expect(transactionMock).toHaveBeenCalledWith(
+      expect.any(Function) as unknown,
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   });
 
   it('should publish a post with multiple categories and four ordered images', async () => {
@@ -1274,6 +1282,13 @@ describe('PostsService', () => {
         },
       },
     });
+
+    expect(transactionMock).toHaveBeenCalledWith(
+      expect.any(Function) as unknown,
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   });
 
   it('should set publishedAt when publishing a post for the first time', async () => {
@@ -1575,5 +1590,82 @@ describe('PostsService', () => {
         message: 'Failed to update the content post',
       },
     });
+  });
+
+  it('should retry post creation after a Serializable transaction conflict', async () => {
+    const transactionConflict = new Prisma.PrismaClientKnownRequestError(
+      'Serializable transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    transactionMock.mockRejectedValueOnce(transactionConflict);
+
+    const dto: CreateContentPostDto = {
+      title: 'Retry Creation',
+      categories: [ContentPostCategoryValue.ANNOUNCEMENT],
+      status: CreateContentPostStatus.DRAFT,
+    };
+
+    contentPostCreateMock.mockResolvedValue({
+      id: postId,
+      title: dto.title,
+      membersOnly: false,
+      status: PublicationStatus.DRAFT,
+      eventStartAt: null,
+      eventEndAt: null,
+      showOnCalendar: false,
+      publishedAt: null,
+      createdAt: fixedNow,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    await expect(service.createPost(dto, adminId)).resolves.toMatchObject({
+      postId,
+      title: 'Retry Creation',
+      status: CreateContentPostStatus.DRAFT,
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(2);
+
+    expect(contentPostCreateMock).toHaveBeenCalledTimes(1);
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('should return a conflict when Serializable transaction retries are exhausted', async () => {
+    const transactionConflict = new Prisma.PrismaClientKnownRequestError(
+      'Serializable transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    transactionMock.mockRejectedValue(transactionConflict);
+
+    const dto: CreateContentPostDto = {
+      title: 'Concurrent Creation',
+      categories: [ContentPostCategoryValue.ANNOUNCEMENT],
+      status: CreateContentPostStatus.DRAFT,
+    };
+
+    await expect(service.createPost(dto, adminId)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'C409_CONTENT_POST_CONCURRENT_UPDATE',
+      },
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(3);
+
+    expect(contentPostCreateMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
   });
 });

@@ -76,6 +76,8 @@ const ADMIN_STATUS_FILTER_MAP: Record<
   [AdminContentPostStatusValue.HIDDEN]: PublicationStatus.HIDDEN,
 };
 
+const MAX_SERIALIZABLE_TRANSACTION_RETRIES = 3;
+
 const POST_DETAIL_SELECT = {
   id: true,
   title: true,
@@ -196,7 +198,7 @@ export class PostsService {
       status === PublicationStatus.PUBLISHED ? new Date() : null;
 
     try {
-      return await this.prisma.$transaction(async (transaction) => {
+      return await this.runSerializableTransaction(async (transaction) => {
         const files =
           imageFileIds.length === 0
             ? []
@@ -321,7 +323,7 @@ export class PostsService {
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      return await this.runSerializableTransaction(async (tx) => {
         const existingPost = await tx.contentPost.findFirst({
           where: {
             id: postId,
@@ -781,5 +783,43 @@ export class PostsService {
         });
       }
     }
+  }
+
+  private async runSerializableTransaction<T>(
+    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    for (
+      let attempt = 1;
+      attempt <= MAX_SERIALIZABLE_TRANSACTION_RETRIES;
+      attempt += 1
+    ) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error: unknown) {
+        const isTransactionConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034';
+
+        if (!isTransactionConflict) {
+          throw error;
+        }
+
+        if (attempt === MAX_SERIALIZABLE_TRANSACTION_RETRIES) {
+          throw new ConflictException({
+            errorCode: 'C409_CONTENT_POST_CONCURRENT_UPDATE',
+            message:
+              'Content post could not be saved due to a concurrent update. Please try again',
+          });
+        }
+      }
+    }
+
+    throw new ConflictException({
+      errorCode: 'C409_CONTENT_POST_CONCURRENT_UPDATE',
+      message:
+        'Content post could not be saved due to a concurrent update. Please try again',
+    });
   }
 }
