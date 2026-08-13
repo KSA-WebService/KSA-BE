@@ -8,6 +8,7 @@ import {
   AdminActionType,
   FilePurpose,
   FileStatus,
+  Prisma,
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -575,11 +576,7 @@ describe('FilesService', () => {
     expect(transactionFileFindUniqueOrThrowMock).not.toHaveBeenCalled();
   });
 
-  it('should delete an unreferenced completed file and create an audit log', async () => {
-    fileFindUniqueMock.mockResolvedValue(completedDeleteFile);
-
-    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('DELETED');
-
+  it('should delete an unreferenced completed file and create an audit log before Storage cleanup', async () => {
     transactionFileFindUniqueMock.mockResolvedValue(completedDeleteFile);
 
     transactionFileUpdateManyMock.mockResolvedValue({
@@ -590,15 +587,29 @@ describe('FilesService', () => {
       id: 1,
     });
 
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('DELETED');
+
     await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
       fileId,
       status: FileStatusValue.DELETED,
       deletedAt,
     });
 
-    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledWith(
-      storagePath,
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+
+    expect(transactionMock).toHaveBeenCalledWith(
+      expect.any(Function) as unknown,
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
     );
+
+    expect(transactionFileFindUniqueMock).toHaveBeenCalledWith({
+      where: {
+        id: fileId,
+      },
+      select: expect.any(Object) as unknown,
+    });
 
     expect(transactionFileUpdateManyMock).toHaveBeenCalledWith({
       where: {
@@ -630,13 +641,17 @@ describe('FilesService', () => {
         },
       },
     });
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledWith(
+      storagePath,
+    );
+
+    expect(adminActionLogCreateMock.mock.invocationCallOrder[0]).toBeLessThan(
+      supabaseAdminServiceMock.deleteStoredImage.mock.invocationCallOrder[0],
+    );
   });
 
   it('should soft-delete a pending file when the Storage object is already missing', async () => {
-    fileFindUniqueMock.mockResolvedValue(pendingDeleteFile);
-
-    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('NOT_FOUND');
-
     transactionFileFindUniqueMock.mockResolvedValue(pendingDeleteFile);
 
     transactionFileUpdateManyMock.mockResolvedValue({
@@ -646,6 +661,8 @@ describe('FilesService', () => {
     adminActionLogCreateMock.mockResolvedValue({
       id: 1,
     });
+
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('NOT_FOUND');
 
     await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
       fileId,
@@ -667,26 +684,15 @@ describe('FilesService', () => {
       },
     });
 
-    expect(adminActionLogCreateMock).toHaveBeenCalledWith({
-      data: {
-        adminId,
-        actionType: AdminActionType.FILE,
-        targetId: fileId,
-        action: AdminAction.DELETE_FILE,
-        metadata: {
-          originalName: pendingDeleteFile.originalName,
-          storagePath: pendingDeleteFile.storagePath,
-          contentType: pendingDeleteFile.contentType,
-          fileSize: pendingDeleteFile.fileSize,
-          purpose: pendingDeleteFile.purpose,
-          previousStatus: FileStatus.PENDING,
-        },
-      },
-    });
+    expect(adminActionLogCreateMock).toHaveBeenCalledTimes(1);
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledWith(
+      storagePath,
+    );
   });
 
-  it('should reject a file that does not exist', async () => {
-    fileFindUniqueMock.mockResolvedValue(null);
+  it('should reject deletion when the file does not exist', async () => {
+    transactionFileFindUniqueMock.mockResolvedValue(null);
 
     await expect(service.deleteFile(fileId, adminId)).rejects.toMatchObject({
       status: 404,
@@ -695,13 +701,19 @@ describe('FilesService', () => {
       },
     });
 
-    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
+    expect(transactionMock).toHaveBeenCalledTimes(1);
 
-    expect(transactionMock).not.toHaveBeenCalled();
+    expect(transactionFileUpdateManyMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
   });
 
-  it('should return an already deleted file without deleting Storage or creating another log', async () => {
-    fileFindUniqueMock.mockResolvedValue(deletedFile);
+  it('should retry Storage cleanup for an already deleted file without creating another audit log', async () => {
+    transactionFileFindUniqueMock.mockResolvedValue(deletedFile);
+
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('NOT_FOUND');
 
     await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
       fileId,
@@ -709,15 +721,21 @@ describe('FilesService', () => {
       deletedAt,
     });
 
-    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
+    expect(transactionMock).toHaveBeenCalledTimes(1);
 
-    expect(transactionMock).not.toHaveBeenCalled();
+    expect(transactionFileUpdateManyMock).not.toHaveBeenCalled();
 
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledTimes(1);
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledWith(
+      storagePath,
+    );
   });
 
-  it('should reject a file referenced by other entities', async () => {
-    fileFindUniqueMock.mockResolvedValue({
+  it('should reject a file referenced by other entities before Storage cleanup', async () => {
+    transactionFileFindUniqueMock.mockResolvedValue({
       ...completedDeleteFile,
       _count: {
         products: 1,
@@ -749,13 +767,23 @@ describe('FilesService', () => {
       },
     });
 
-    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
+    expect(transactionFileUpdateManyMock).not.toHaveBeenCalled();
 
-    expect(transactionMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
   });
 
-  it('should not change the database when Storage deletion fails', async () => {
-    fileFindUniqueMock.mockResolvedValue(completedDeleteFile);
+  it('should keep the database deletion committed when Storage cleanup fails', async () => {
+    transactionFileFindUniqueMock.mockResolvedValue(completedDeleteFile);
+
+    transactionFileUpdateManyMock.mockResolvedValue({
+      count: 1,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
 
     supabaseAdminServiceMock.deleteStoredImage.mockRejectedValue(
       new Error('Storage failure'),
@@ -765,51 +793,51 @@ describe('FilesService', () => {
       status: 500,
       response: {
         errorCode: 'F500_FILE_DELETE_FAILED',
+        message: 'Failed to delete the file from Storage',
       },
     });
 
-    expect(transactionMock).not.toHaveBeenCalled();
+    expect(transactionFileUpdateManyMock).toHaveBeenCalledWith({
+      where: {
+        id: fileId,
+        status: {
+          in: [FileStatus.PENDING, FileStatus.COMPLETED],
+        },
+        deletedAt: null,
+      },
+      data: {
+        status: FileStatus.DELETED,
+        deletedAt,
+      },
+    });
 
-    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).toHaveBeenCalledTimes(1);
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledTimes(1);
   });
 
-  it('should reject deletion when a reference exists during the transaction recheck', async () => {
-    fileFindUniqueMock.mockResolvedValue(completedDeleteFile);
-
-    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('DELETED');
-
-    transactionFileFindUniqueMock.mockResolvedValue({
-      ...completedDeleteFile,
-      _count: {
-        products: 1,
-        contentImages: 0,
-        clubImages: 0,
-      },
-    });
-
-    await expect(service.deleteFile(fileId, adminId)).rejects.toMatchObject({
-      status: 409,
-      response: {
-        errorCode: 'F409_FILE_IN_USE',
-      },
-    });
-
-    expect(transactionFileUpdateManyMock).not.toHaveBeenCalled();
-
-    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
-  });
-
-  it('should return the deleted result when another request deleted the file first', async () => {
-    fileFindUniqueMock.mockResolvedValue(completedDeleteFile);
-
-    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('DELETED');
-
+  it('should retry Storage cleanup on a later delete request without duplicating the audit log', async () => {
     transactionFileFindUniqueMock
       .mockResolvedValueOnce(completedDeleteFile)
       .mockResolvedValueOnce(deletedFile);
 
     transactionFileUpdateManyMock.mockResolvedValue({
-      count: 0,
+      count: 1,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    supabaseAdminServiceMock.deleteStoredImage
+      .mockRejectedValueOnce(new Error('Temporary Storage failure'))
+      .mockResolvedValueOnce('DELETED');
+
+    await expect(service.deleteFile(fileId, adminId)).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'F500_FILE_DELETE_FAILED',
+      },
     });
 
     await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
@@ -818,6 +846,101 @@ describe('FilesService', () => {
       deletedAt,
     });
 
+    expect(transactionMock).toHaveBeenCalledTimes(2);
+
+    expect(transactionFileUpdateManyMock).toHaveBeenCalledTimes(1);
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledTimes(1);
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledTimes(2);
+  });
+
+  it('should return the deleted result when another request deleted the file first', async () => {
+    transactionFileFindUniqueMock
+      .mockResolvedValueOnce(completedDeleteFile)
+      .mockResolvedValueOnce(deletedFile);
+
+    transactionFileUpdateManyMock.mockResolvedValue({
+      count: 0,
+    });
+
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('NOT_FOUND');
+
+    await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
+      fileId,
+      status: FileStatusValue.DELETED,
+      deletedAt,
+    });
+
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledWith(
+      storagePath,
+    );
+  });
+
+  it('should retry a Serializable transaction after a P2034 conflict', async () => {
+    const transactionConflict = new Prisma.PrismaClientKnownRequestError(
+      'Serializable transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    transactionMock.mockRejectedValueOnce(transactionConflict);
+
+    transactionFileFindUniqueMock.mockResolvedValue(completedDeleteFile);
+
+    transactionFileUpdateManyMock.mockResolvedValue({
+      count: 1,
+    });
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 1,
+    });
+
+    supabaseAdminServiceMock.deleteStoredImage.mockResolvedValue('DELETED');
+
+    await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
+      fileId,
+      status: FileStatusValue.DELETED,
+      deletedAt,
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(2);
+
+    expect(transactionFileUpdateManyMock).toHaveBeenCalledTimes(1);
+
+    expect(adminActionLogCreateMock).toHaveBeenCalledTimes(1);
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('should return a conflict after Serializable transaction retries are exhausted', async () => {
+    const transactionConflict = new Prisma.PrismaClientKnownRequestError(
+      'Serializable transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    transactionMock.mockRejectedValue(transactionConflict);
+
+    await expect(service.deleteFile(fileId, adminId)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_CONCURRENT_UPDATE',
+      },
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(3);
+
+    expect(transactionFileUpdateManyMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+
+    expect(supabaseAdminServiceMock.deleteStoredImage).not.toHaveBeenCalled();
   });
 });

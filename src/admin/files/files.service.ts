@@ -28,6 +28,7 @@ import {
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const SIGNED_UPLOAD_VALIDITY_MS = 2 * 60 * 60 * 1000;
+const MAX_SERIALIZABLE_TRANSACTION_RETRIES = 3;
 
 const PURPOSE_FOLDERS: Record<FilePurpose, string> = {
   [FilePurpose.POST_IMAGE]: 'post-images',
@@ -327,42 +328,17 @@ export class FilesService {
   }
 
   async deleteFile(fileId: string, adminId: string) {
-    const file = await this.prisma.file.findUnique({
-      where: {
-        id: fileId,
-      },
-      select: DELETE_FILE_SELECT,
-    });
-
-    if (!file) {
-      throw new NotFoundException({
-        errorCode: 'F404_FILE_NOT_FOUND',
-        message: 'File not found',
-      });
-    }
-
-    if (this.isFileDeleted(file)) {
-      return this.toFileDeletionResponse(file);
-    }
-
-    this.ensureFileNotInUse(file);
+    let deletionResult: {
+      fileId: string;
+      storagePath: string;
+      deletedAt: Date | null;
+    };
 
     try {
-      await this.supabaseAdminService.deleteStoredImage(file.storagePath);
-    } catch {
-      throw new InternalServerErrorException({
-        errorCode: 'F500_FILE_DELETE_FAILED',
-        message: 'Failed to delete the file from Storage',
-      });
-    }
-
-    const deletedAt = new Date();
-
-    try {
-      return await this.prisma.$transaction(async (transaction) => {
-        const currentFile = await transaction.file.findUnique({
+      deletionResult = await this.runSerializableTransaction(async (tx) => {
+        const currentFile = await tx.file.findUnique({
           where: {
-            id: file.id,
+            id: fileId,
           },
           select: DELETE_FILE_SELECT,
         });
@@ -374,13 +350,28 @@ export class FilesService {
           });
         }
 
+        /*
+         * 이미 DB에서 삭제된 파일이라면 상태를 다시 변경하거나
+         * audit log를 추가하지 않는다.
+         *
+         * Storage cleanup은 transaction 밖에서 다시 시도한다.
+         */
         if (this.isFileDeleted(currentFile)) {
-          return this.toFileDeletionResponse(currentFile);
+          return {
+            fileId: currentFile.id,
+            storagePath: currentFile.storagePath,
+            deletedAt: currentFile.deletedAt,
+          };
         }
 
+        /*
+         * 실제 삭제 상태 변경 직전에 reference를 최종 확인한다.
+         */
         this.ensureFileNotInUse(currentFile);
 
-        const updateResult = await transaction.file.updateMany({
+        const deletedAt = new Date();
+
+        const updateResult = await tx.file.updateMany({
           where: {
             id: currentFile.id,
             status: {
@@ -394,8 +385,8 @@ export class FilesService {
           },
         });
 
-        if (updateResult.count === 0) {
-          const latestFile = await transaction.file.findUnique({
+        if (updateResult.count !== 1) {
+          const latestFile = await tx.file.findUnique({
             where: {
               id: currentFile.id,
             },
@@ -410,7 +401,11 @@ export class FilesService {
           }
 
           if (this.isFileDeleted(latestFile)) {
-            return this.toFileDeletionResponse(latestFile);
+            return {
+              fileId: latestFile.id,
+              storagePath: latestFile.storagePath,
+              deletedAt: latestFile.deletedAt,
+            };
           }
 
           throw new InternalServerErrorException({
@@ -419,7 +414,7 @@ export class FilesService {
           });
         }
 
-        await transaction.adminActionLog.create({
+        await tx.adminActionLog.create({
           data: {
             adminId,
             actionType: AdminActionType.FILE,
@@ -436,10 +431,11 @@ export class FilesService {
           },
         });
 
-        return this.toFileDeletionResponse({
-          id: currentFile.id,
+        return {
+          fileId: currentFile.id,
+          storagePath: currentFile.storagePath,
           deletedAt,
-        });
+        };
       });
     } catch (error: unknown) {
       if (error instanceof HttpException) {
@@ -451,6 +447,28 @@ export class FilesService {
         message: 'Failed to delete the file',
       });
     }
+
+    /*
+     * DB에서 논리 삭제가 commit된 뒤 Storage object를 정리한다.
+     *
+     * 이미 DB에서 DELETED인 파일에 대한 재요청도 이 단계까지 와서
+     * Storage cleanup을 다시 시도하므로 cleanup failure를 복구할 수 있다.
+     */
+    try {
+      await this.supabaseAdminService.deleteStoredImage(
+        deletionResult.storagePath,
+      );
+    } catch {
+      throw new InternalServerErrorException({
+        errorCode: 'F500_FILE_DELETE_FAILED',
+        message: 'Failed to delete the file from Storage',
+      });
+    }
+
+    return this.toFileDeletionResponse({
+      id: deletionResult.fileId,
+      deletedAt: deletionResult.deletedAt,
+    });
   }
 
   private validateFileSize(fileSize: number): void {
@@ -583,6 +601,44 @@ export class FilesService {
     deletedAt: Date | null;
   }): boolean {
     return file.status === FileStatus.DELETED || file.deletedAt !== null;
+  }
+
+  private async runSerializableTransaction<T>(
+    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    for (
+      let attempt = 1;
+      attempt <= MAX_SERIALIZABLE_TRANSACTION_RETRIES;
+      attempt += 1
+    ) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error: unknown) {
+        const isTransactionConflict =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034';
+
+        if (!isTransactionConflict) {
+          throw error;
+        }
+
+        if (attempt === MAX_SERIALIZABLE_TRANSACTION_RETRIES) {
+          throw new ConflictException({
+            errorCode: 'F409_FILE_CONCURRENT_UPDATE',
+            message:
+              'File could not be deleted due to a concurrent update. Please try again',
+          });
+        }
+      }
+    }
+
+    throw new ConflictException({
+      errorCode: 'F409_FILE_CONCURRENT_UPDATE',
+      message:
+        'File could not be deleted due to a concurrent update. Please try again',
+    });
   }
 
   private toFileDeletionResponse(file: { id: string; deletedAt: Date | null }) {
