@@ -41,6 +41,7 @@ export class InvitationsService {
         id: {
           in: dto.whitelistUserIds,
         },
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -48,6 +49,7 @@ export class InvitationsService {
         email: true,
         userId: true,
         invitationStatus: true,
+        updatedAt: true,
       },
     });
 
@@ -255,26 +257,51 @@ export class InvitationsService {
          * 메일 발송 실패:
          * Invitation과 WhitelistedUser를 FAILED 처리한다.
          */
-        await this.prisma.$transaction([
-          this.prisma.invitation.update({
-            where: {
-              id: invitation.id,
-            },
-            data: {
-              linkStatus: InvitationLinkStatus.FAILED,
-            },
-          }),
-          this.prisma.whitelistedUser.updateMany({
-            where: {
-              id: whitelistUserId,
-              userId: null,
-              invitationStatus: WhitelistInvitationStatus.PENDING,
-            },
-            data: {
-              invitationStatus: WhitelistInvitationStatus.FAILED,
-            },
-          }),
-        ]);
+        const [invitationFailureUpdate, whitelistFailureUpdate] =
+          await this.prisma.$transaction([
+            this.prisma.invitation.updateMany({
+              where: {
+                id: invitation.id,
+                linkStatus: InvitationLinkStatus.ACTIVE,
+              },
+              data: {
+                linkStatus: InvitationLinkStatus.FAILED,
+              },
+            }),
+            this.prisma.whitelistedUser.updateMany({
+              where: {
+                id: whitelistUserId,
+                deletedAt: null,
+                userId: null,
+                invitationStatus: WhitelistInvitationStatus.PENDING,
+                updatedAt: whitelistUser.updatedAt,
+              },
+              data: {
+                invitationStatus: WhitelistInvitationStatus.FAILED,
+              },
+            }),
+          ]);
+
+        if (
+          invitationFailureUpdate.count !== 1 ||
+          whitelistFailureUpdate.count !== 1
+        ) {
+          results.push({
+            whitelistUserId,
+            email: normalizedEmail,
+            invitationId: invitation.id,
+            sendStatus: InvitationSendStatusValue.FAILED,
+            invitationStatus: null,
+            linkStatus: null,
+            sentAt,
+            expiresAt,
+            errorCode: 'I409_WHITELIST_STATE_CHANGED',
+            errorMessage:
+              'The whitelist user state changed while processing the invitation',
+          });
+
+          continue;
+        }
 
         results.push({
           whitelistUserId,
@@ -300,10 +327,14 @@ export class InvitationsService {
        * 이메일 발송 성공:
        * whitelist 상태 갱신과 관리자 로그를 함께 처리한다.
        */
-      await this.prisma.$transaction(async (tx) => {
-        await tx.whitelistedUser.update({
+      const sendFinalizeResult = await this.prisma.$transaction(async (tx) => {
+        const whitelistUpdate = await tx.whitelistedUser.updateMany({
           where: {
             id: whitelistUserId,
+            deletedAt: null,
+            userId: null,
+            invitationStatus: WhitelistInvitationStatus.PENDING,
+            updatedAt: whitelistUser.updatedAt,
           },
           data: {
             invitationStatus: WhitelistInvitationStatus.INVITED,
@@ -311,6 +342,24 @@ export class InvitationsService {
             invitedAt: sentAt,
           },
         });
+
+        if (whitelistUpdate.count !== 1) {
+          /*
+           * 조회 이후 whitelist가 삭제되거나 상태가 변경된 경우
+           * 방금 만든 invitation을 더 이상 유효하게 두지 않는다.
+           */
+          await tx.invitation.updateMany({
+            where: {
+              id: invitation.id,
+              linkStatus: InvitationLinkStatus.ACTIVE,
+            },
+            data: {
+              linkStatus: InvitationLinkStatus.REVOKED,
+            },
+          });
+
+          return false;
+        }
 
         await tx.adminActionLog.create({
           data: {
@@ -325,7 +374,27 @@ export class InvitationsService {
             },
           },
         });
+
+        return true;
       });
+
+      if (!sendFinalizeResult) {
+        results.push({
+          whitelistUserId,
+          email: normalizedEmail,
+          invitationId: invitation.id,
+          sendStatus: InvitationSendStatusValue.FAILED,
+          invitationStatus: null,
+          linkStatus: null,
+          sentAt,
+          expiresAt,
+          errorCode: 'I409_WHITELIST_STATE_CHANGED',
+          errorMessage:
+            'The whitelist user state changed while processing the invitation',
+        });
+
+        continue;
+      }
 
       results.push({
         whitelistUserId,
@@ -359,6 +428,7 @@ export class InvitationsService {
         id: {
           in: dto.whitelistUserIds,
         },
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -366,6 +436,7 @@ export class InvitationsService {
         email: true,
         userId: true,
         invitationStatus: true,
+        updatedAt: true,
       },
     });
 
@@ -563,14 +634,33 @@ export class InvitationsService {
          * 기존 ACTIVE 링크는 그대로 유지한다.
          * WhitelistedUser 상태도 변경하지 않는다.
          */
-        await this.prisma.invitation.update({
+        const failedInvitationUpdate = await this.prisma.invitation.updateMany({
           where: {
             id: invitation.id,
+            linkStatus: InvitationLinkStatus.ACTIVE,
           },
           data: {
             linkStatus: InvitationLinkStatus.FAILED,
           },
         });
+
+        if (failedInvitationUpdate.count !== 1) {
+          results.push({
+            whitelistUserId,
+            email: normalizedEmail,
+            invitationId: invitation.id,
+            sendStatus: InvitationResendStatusValue.FAILED,
+            invitationStatus: null,
+            linkStatus: null,
+            sentAt,
+            expiresAt,
+            errorCode: 'I409_WHITELIST_STATE_CHANGED',
+            errorMessage:
+              'The whitelist user state changed while processing the invitation',
+          });
+
+          continue;
+        }
 
         results.push({
           whitelistUserId,
@@ -599,64 +689,123 @@ export class InvitationsService {
        * 2. whitelist 상태를 INVITED로 갱신
        * 3. 관리자 로그 생성
        */
-      await this.prisma.$transaction(async (tx) => {
-        const previousActiveInvitations = await tx.invitation.findMany({
-          where: {
-            whitelistUserId,
-            id: {
-              not: invitation.id,
-            },
-            linkStatus: InvitationLinkStatus.ACTIVE,
-          },
-          select: {
-            id: true,
-          },
-        });
-
-        const revokedInvitationIds = previousActiveInvitations.map(
-          (previousInvitation) => previousInvitation.id,
-        );
-
-        if (revokedInvitationIds.length > 0) {
-          await tx.invitation.updateMany({
+      const resendFinalizeResult = await this.prisma.$transaction(
+        async (tx) => {
+          /*
+           * 최초 조회 이후 whitelist 상태가 바뀌지 않았는지 먼저 확인한다.
+           */
+          const whitelistUpdate = await tx.whitelistedUser.updateMany({
             where: {
+              id: whitelistUserId,
+              deletedAt: null,
+              userId: null,
+              invitationStatus: {
+                in: [
+                  WhitelistInvitationStatus.INVITED,
+                  WhitelistInvitationStatus.EXPIRED,
+                  WhitelistInvitationStatus.FAILED,
+                ],
+              },
+              updatedAt: whitelistUser.updatedAt,
+            },
+            data: {
+              invitationStatus: WhitelistInvitationStatus.INVITED,
+              invitedBy: adminId,
+              invitedAt: sentAt,
+            },
+          });
+
+          if (whitelistUpdate.count !== 1) {
+            /*
+             * 삭제 또는 다른 send/resend/onboarding 등으로 상태가 바뀐 경우
+             * 새 invitation만 폐기한다.
+             *
+             * 기존 invitation들은 건드리지 않는다.
+             */
+            await tx.invitation.updateMany({
+              where: {
+                id: invitation.id,
+                linkStatus: InvitationLinkStatus.ACTIVE,
+              },
+              data: {
+                linkStatus: InvitationLinkStatus.REVOKED,
+              },
+            });
+
+            return false;
+          }
+
+          /*
+           * whitelist 상태가 정상적으로 확보된 뒤
+           * 기존 ACTIVE 링크들을 폐기한다.
+           */
+          const previousActiveInvitations = await tx.invitation.findMany({
+            where: {
+              whitelistUserId,
               id: {
-                in: revokedInvitationIds,
+                not: invitation.id,
               },
               linkStatus: InvitationLinkStatus.ACTIVE,
             },
-            data: {
-              linkStatus: InvitationLinkStatus.REVOKED,
+            select: {
+              id: true,
             },
           });
-        }
 
-        await tx.whitelistedUser.update({
-          where: {
-            id: whitelistUserId,
-          },
-          data: {
-            invitationStatus: WhitelistInvitationStatus.INVITED,
-            invitedBy: adminId,
-            invitedAt: sentAt,
-          },
-        });
+          const revokedInvitationIds = previousActiveInvitations.map(
+            (previousInvitation) => previousInvitation.id,
+          );
 
-        await tx.adminActionLog.create({
-          data: {
-            adminId,
-            actionType: AdminActionType.INVITATION,
-            action: AdminAction.RESEND_INVITATION,
-            targetId: invitation.id,
-            metadata: {
-              whitelistUserId,
-              email: normalizedEmail,
-              expiresAt: expiresAt.toISOString(),
-              revokedInvitationIds,
+          if (revokedInvitationIds.length > 0) {
+            await tx.invitation.updateMany({
+              where: {
+                id: {
+                  in: revokedInvitationIds,
+                },
+                linkStatus: InvitationLinkStatus.ACTIVE,
+              },
+              data: {
+                linkStatus: InvitationLinkStatus.REVOKED,
+              },
+            });
+          }
+
+          await tx.adminActionLog.create({
+            data: {
+              adminId,
+              actionType: AdminActionType.INVITATION,
+              action: AdminAction.RESEND_INVITATION,
+              targetId: invitation.id,
+              metadata: {
+                whitelistUserId,
+                email: normalizedEmail,
+                expiresAt: expiresAt.toISOString(),
+                revokedInvitationIds,
+              },
             },
-          },
+          });
+
+          return true;
+        },
+      );
+
+      if (!resendFinalizeResult) {
+        results.push({
+          whitelistUserId,
+          email: normalizedEmail,
+          invitationId: invitation.id,
+          sendStatus: InvitationResendStatusValue.FAILED,
+          invitationStatus: null,
+          linkStatus: null,
+          sentAt,
+          expiresAt,
+          errorCode: 'I409_WHITELIST_STATE_CHANGED',
+          errorMessage:
+            'The whitelist user state changed while processing the invitation',
         });
-      });
+
+        continue;
+      }
 
       results.push({
         whitelistUserId,

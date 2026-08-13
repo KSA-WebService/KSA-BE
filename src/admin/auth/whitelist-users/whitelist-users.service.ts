@@ -7,8 +7,9 @@ import {
 import {
   AdminAction,
   AdminActionType,
-  WhitelistInvitationStatus,
+  InvitationLinkStatus,
   Prisma,
+  WhitelistInvitationStatus,
 } from '@prisma/client';
 import {
   INVITATION_LINK_STATUS_VALUE_MAP,
@@ -43,6 +44,20 @@ interface ImportRowValidation {
   errorMessage: string | null;
 }
 
+type WhitelistUserCreateResult = Prisma.WhitelistedUserGetPayload<{
+  select: {
+    id: true;
+    name: true;
+    studentNumber: true;
+    email: true;
+    invitationStatus: true;
+    invitedAt: true;
+    acceptedAt: true;
+    createdAt: true;
+    updatedAt: true;
+  };
+}>;
+
 type ImportAction =
   | {
       type: 'CREATE';
@@ -54,6 +69,7 @@ type ImportAction =
       row: NormalizedImportUser;
       resultIndex: number;
       whitelistUserId: string;
+      restore: boolean;
     };
 
 const WHITELIST_USER_SORT_PRISMA_FIELD_MAP: Record<
@@ -86,6 +102,7 @@ export class WhitelistUsersService {
       : undefined;
 
     const where: Prisma.WhitelistedUserWhereInput = {
+      deletedAt: null,
       ...(keyword
         ? {
             OR: [
@@ -168,9 +185,10 @@ export class WhitelistUsersService {
   }
 
   async findOne(whitelistUserId: string) {
-    const whitelistUser = await this.prisma.whitelistedUser.findUnique({
+    const whitelistUser = await this.prisma.whitelistedUser.findFirst({
       where: {
         id: whitelistUserId,
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -255,9 +273,10 @@ export class WhitelistUsersService {
 
   async remove(whitelistUserId: string, adminId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const whitelistUser = await tx.whitelistedUser.findUnique({
+      const whitelistUser = await tx.whitelistedUser.findFirst({
         where: {
           id: whitelistUserId,
+          deletedAt: null,
         },
         select: {
           id: true,
@@ -292,9 +311,40 @@ export class WhitelistUsersService {
         });
       }
 
-      await tx.whitelistedUser.delete({
+      const deletedAt = new Date();
+
+      const softDeleteResult = await tx.whitelistedUser.updateMany({
         where: {
           id: whitelistUserId,
+          deletedAt: null,
+          userId: null,
+          invitationStatus: {
+            not: WhitelistInvitationStatus.ACCEPTED,
+          },
+        },
+        data: {
+          deletedAt,
+        },
+      });
+
+      if (softDeleteResult.count !== 1) {
+        throw new ConflictException({
+          errorCode: 'W409_DELETE_CONFLICT',
+          message:
+            'Whitelist user could not be deleted because its state changed',
+          data: {
+            whitelistUserId,
+          },
+        });
+      }
+
+      await tx.invitation.updateMany({
+        where: {
+          whitelistUserId,
+          linkStatus: InvitationLinkStatus.ACTIVE,
+        },
+        data: {
+          linkStatus: InvitationLinkStatus.REVOKED,
         },
       });
 
@@ -445,6 +495,7 @@ export class WhitelistUsersService {
           studentNumber: true,
           invitationStatus: true,
           userId: true,
+          deletedAt: true,
         },
       }),
       this.prisma.user.findMany({
@@ -524,6 +575,16 @@ export class WhitelistUsersService {
         whitelistByMatchingEmail !== undefined &&
         whitelistByMatchingStudentNumber !== undefined &&
         whitelistByMatchingEmail.id !== whitelistByMatchingStudentNumber.id;
+
+      const exactWhitelistMatch =
+        whitelistByMatchingEmail !== undefined &&
+        whitelistByMatchingStudentNumber !== undefined &&
+        whitelistByMatchingEmail.id === whitelistByMatchingStudentNumber.id;
+
+      const exactDeletedWhitelist =
+        exactWhitelistMatch && whitelistByMatchingEmail.deletedAt !== null
+          ? whitelistByMatchingEmail
+          : null;
 
       if (dto.onDuplicate === WhitelistImportDuplicatePolicy.FAIL) {
         if (hasExistingUser || hasExistingWhitelist) {
@@ -665,7 +726,26 @@ export class WhitelistUsersService {
         continue;
       }
 
-      if (
+      if (matchedWhitelist.deletedAt !== null) {
+        if (
+          exactDeletedWhitelist === null ||
+          matchedWhitelist.userId !== null ||
+          matchedWhitelist.invitationStatus ===
+            WhitelistInvitationStatus.ACCEPTED
+        ) {
+          results[resultIndex] = {
+            rowIndex: row.rowIndex,
+            email: row.email,
+            studentNumber: row.studentNumber,
+            status: ImportRowStatusValue.FAILED,
+            whitelistUserId: null,
+            errorMessage:
+              'The deleted whitelist user can only be restored when both email and student number match',
+          };
+
+          continue;
+        }
+      } else if (
         matchedWhitelist.userId !== null ||
         !updatableStatuses.has(matchedWhitelist.invitationStatus)
       ) {
@@ -698,6 +778,7 @@ export class WhitelistUsersService {
         row,
         resultIndex,
         whitelistUserId: matchedWhitelist.id,
+        restore: exactDeletedWhitelist !== null,
       });
     }
 
@@ -739,21 +820,80 @@ export class WhitelistUsersService {
               continue;
             }
 
-            const updated = await tx.whitelistedUser.update({
+            if (action.restore) {
+              const restoreResult = await tx.whitelistedUser.updateMany({
+                where: {
+                  id: action.whitelistUserId,
+                  deletedAt: {
+                    not: null,
+                  },
+                  userId: null,
+                  invitationStatus: {
+                    not: WhitelistInvitationStatus.ACCEPTED,
+                  },
+                },
+                data: {
+                  name: action.row.name,
+                  studentNumber: action.row.studentNumber,
+                  email: action.row.email,
+                  deletedAt: null,
+                  invitationStatus: WhitelistInvitationStatus.PENDING,
+                  invitedBy: null,
+                  invitedAt: null,
+                  acceptedAt: null,
+                },
+              });
+
+              if (restoreResult.count !== 1) {
+                throw new ConflictException({
+                  errorCode: 'W409_IMPORT_RESTORE_CONFLICT',
+                  message:
+                    'The deleted whitelist user could not be restored because its state changed',
+                  data: {
+                    whitelistUserId: action.whitelistUserId,
+                  },
+                });
+              }
+
+              results[action.resultIndex].whitelistUserId =
+                action.whitelistUserId;
+
+              continue;
+            }
+
+            const updateResult = await tx.whitelistedUser.updateMany({
               where: {
                 id: action.whitelistUserId,
+                deletedAt: null,
+                userId: null,
+                invitationStatus: {
+                  in: [
+                    WhitelistInvitationStatus.PENDING,
+                    WhitelistInvitationStatus.FAILED,
+                    WhitelistInvitationStatus.EXPIRED,
+                  ],
+                },
               },
               data: {
                 name: action.row.name,
                 studentNumber: action.row.studentNumber,
                 email: action.row.email,
               },
-              select: {
-                id: true,
-              },
             });
 
-            results[action.resultIndex].whitelistUserId = updated.id;
+            if (updateResult.count !== 1) {
+              throw new ConflictException({
+                errorCode: 'W409_IMPORT_UPDATE_CONFLICT',
+                message:
+                  'The whitelist user could not be updated because its state changed',
+                data: {
+                  whitelistUserId: action.whitelistUserId,
+                },
+              });
+            }
+
+            results[action.resultIndex].whitelistUserId =
+              action.whitelistUserId;
           }
 
           const summary = this.buildImportSummary(results);
@@ -803,7 +943,7 @@ export class WhitelistUsersService {
   ) {
     const { name, studentNumber, email } = createWhitelistUserDto;
 
-    const existingWhitelistUser = await this.prisma.whitelistedUser.findFirst({
+    const existingWhitelistUsers = await this.prisma.whitelistedUser.findMany({
       where: {
         OR: [
           {
@@ -815,30 +955,30 @@ export class WhitelistUsersService {
         ],
       },
       select: {
+        id: true,
         email: true,
         studentNumber: true,
+        deletedAt: true,
+        invitationStatus: true,
+        userId: true,
       },
     });
 
-    if (existingWhitelistUser?.email === email) {
-      throw new ConflictException({
-        errorCode: 'W409_EMAIL',
-        message: 'The email is already registered in the whitelist',
-        data: {
-          email,
-        },
-      });
-    }
+    const whitelistByEmail = existingWhitelistUsers.find(
+      (whitelistUser) => whitelistUser.email === email,
+    );
 
-    if (existingWhitelistUser?.studentNumber === studentNumber) {
-      throw new ConflictException({
-        errorCode: 'W409_STUDENT_NUMBER',
-        message: 'The student number is already registered in the whitelist',
-        data: {
-          studentNumber,
-        },
-      });
-    }
+    const whitelistByStudentNumber = existingWhitelistUsers.find(
+      (whitelistUser) => whitelistUser.studentNumber === studentNumber,
+    );
+
+    const exactDeletedWhitelist =
+      whitelistByEmail &&
+      whitelistByStudentNumber &&
+      whitelistByEmail.id === whitelistByStudentNumber.id &&
+      whitelistByEmail.deletedAt !== null
+        ? whitelistByEmail
+        : null;
 
     const existingUser = await this.prisma.user.findFirst({
       where: {
@@ -877,27 +1017,102 @@ export class WhitelistUsersService {
       });
     }
 
+    if (!exactDeletedWhitelist) {
+      if (whitelistByEmail) {
+        throw new ConflictException({
+          errorCode: 'W409_EMAIL',
+          message: 'The email is already registered in the whitelist',
+          data: {
+            email,
+          },
+        });
+      }
+
+      if (whitelistByStudentNumber) {
+        throw new ConflictException({
+          errorCode: 'W409_STUDENT_NUMBER',
+          message: 'The student number is already registered in the whitelist',
+          data: {
+            studentNumber,
+          },
+        });
+      }
+    }
+
     try {
       const createdWhitelistUser = await this.prisma.$transaction(
         async (transaction) => {
-          const whitelistUser = await transaction.whitelistedUser.create({
-            data: {
-              name,
-              studentNumber,
-              email,
-            },
-            select: {
-              id: true,
-              name: true,
-              studentNumber: true,
-              email: true,
-              invitationStatus: true,
-              invitedAt: true,
-              acceptedAt: true,
-              createdAt: true,
-              updatedAt: true,
-            },
-          });
+          let whitelistUser: WhitelistUserCreateResult;
+
+          if (exactDeletedWhitelist) {
+            const restoreResult = await transaction.whitelistedUser.updateMany({
+              where: {
+                id: exactDeletedWhitelist.id,
+                deletedAt: {
+                  not: null,
+                },
+                userId: null,
+              },
+              data: {
+                name,
+                deletedAt: null,
+                invitationStatus: WhitelistInvitationStatus.PENDING,
+                invitedBy: null,
+                invitedAt: null,
+                acceptedAt: null,
+              },
+            });
+
+            if (restoreResult.count !== 1) {
+              throw new ConflictException({
+                errorCode: 'W409',
+                message: 'The deleted whitelist user could not be restored',
+                data: {
+                  email,
+                  studentNumber,
+                },
+              });
+            }
+
+            const restoredWhitelistUser =
+              await transaction.whitelistedUser.findUniqueOrThrow({
+                where: {
+                  id: exactDeletedWhitelist.id,
+                },
+                select: {
+                  id: true,
+                  name: true,
+                  studentNumber: true,
+                  email: true,
+                  invitationStatus: true,
+                  invitedAt: true,
+                  acceptedAt: true,
+                  createdAt: true,
+                  updatedAt: true,
+                },
+              });
+
+            whitelistUser = restoredWhitelistUser;
+          } else {
+            whitelistUser = await transaction.whitelistedUser.create({
+              data: {
+                name,
+                studentNumber,
+                email,
+              },
+              select: {
+                id: true,
+                name: true,
+                studentNumber: true,
+                email: true,
+                invitationStatus: true,
+                invitedAt: true,
+                acceptedAt: true,
+                createdAt: true,
+                updatedAt: true,
+              },
+            });
+          }
 
           await transaction.adminActionLog.create({
             data: {
@@ -909,6 +1124,7 @@ export class WhitelistUsersService {
                 name,
                 studentNumber,
                 email,
+                restored: exactDeletedWhitelist !== null,
               },
             },
           });
@@ -996,12 +1212,12 @@ export class WhitelistUsersService {
       };
     }
 
-    if (name.length > 36) {
+    if (name.length > 128) {
       return {
         row: null,
         email,
         studentNumber,
-        errorMessage: 'Name must not exceed 36 characters',
+        errorMessage: 'Name must not exceed 128 characters',
       };
     }
 

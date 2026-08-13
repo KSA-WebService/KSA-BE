@@ -50,6 +50,7 @@ export class InvitationEligibilityService {
             studentNumber: true,
             userId: true,
             invitationStatus: true,
+            deletedAt: true,
           },
         },
       },
@@ -82,6 +83,14 @@ export class InvitationEligibilityService {
     }
 
     if (invitation.linkStatus === InvitationLinkStatus.FAILED) {
+      throw new GoneException({
+        errorCode: 'I410_INVITATION_UNAVAILABLE',
+        message: 'This invitation is unavailable',
+        data: null,
+      });
+    }
+
+    if (whitelistUser.deletedAt !== null) {
       throw new GoneException({
         errorCode: 'I410_INVITATION_UNAVAILABLE',
         message: 'This invitation is unavailable',
@@ -192,6 +201,7 @@ export class InvitationEligibilityService {
       await tx.whitelistedUser.updateMany({
         where: {
           id: whitelistUserId,
+          deletedAt: null,
           userId: null,
           invitationStatus: WhitelistInvitationStatus.INVITED,
         },
