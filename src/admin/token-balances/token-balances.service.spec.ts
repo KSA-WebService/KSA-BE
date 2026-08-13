@@ -77,6 +77,7 @@ describe('TokenBalancesService', () => {
     expect(userAggregateMock).toHaveBeenCalledWith({
       where: {
         role: UserRole.STUDENT,
+        deletedAt: null,
         tokenBalance: {
           gt: 0,
         },
@@ -165,6 +166,7 @@ describe('TokenBalancesService', () => {
     expect(userFindManyMock).toHaveBeenCalledWith({
       where: {
         role: UserRole.STUDENT,
+        deletedAt: null,
         tokenBalance: {
           gt: 0,
         },
@@ -207,6 +209,7 @@ describe('TokenBalancesService', () => {
           in: [firstUserId, secondUserId],
         },
         role: UserRole.STUDENT,
+        deletedAt: null,
         tokenBalance: {
           gt: 0,
         },
@@ -291,7 +294,7 @@ describe('TokenBalancesService', () => {
     expect(prismaServiceMock.$transaction).not.toHaveBeenCalled();
   });
 
-  it('should reject the operation when the updated user count changes', async () => {
+  it('should reject the reset when a target becomes unavailable before the final update', async () => {
     const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
 
     userFindUniqueMock.mockResolvedValue({
@@ -335,6 +338,27 @@ describe('TokenBalancesService', () => {
     });
 
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+
+    expect(tokenLogCreateManyMock).not.toHaveBeenCalled();
+
+    expect(userUpdateManyMock).toHaveBeenCalledWith({
+      where: {
+        id: {
+          in: [
+            'a8d91c2e-2222-4a11-9f10-abc123456789',
+            'c7d82b1f-3333-4a11-9f10-abc123456789',
+          ],
+        },
+        role: UserRole.STUDENT,
+        deletedAt: null,
+        tokenBalance: {
+          gt: 0,
+        },
+      },
+      data: {
+        tokenBalance: 0,
+      },
+    });
   });
 
   it('should retry a P2034 transaction conflict', async () => {
