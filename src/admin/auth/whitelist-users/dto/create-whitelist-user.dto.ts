@@ -13,7 +13,7 @@ export class CreateWhitelistUserDto {
   )
   @IsString()
   @IsNotEmpty()
-  @MaxLength(36)
+  @MaxLength(128)
   name!: string;
 
   @Transform(({ value }: { value: unknown }) =>

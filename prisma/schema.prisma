@@ -200,12 +200,13 @@ model WhitelistedUser {
   id               String                    @id @default(dbgenerated("gen_random_uuid()")) @map("id") @db.Uuid
   userId           String?                   @unique @map("user_id") @db.Uuid
   email            String                    @unique @map("email") @db.VarChar(255)
-  name             String                    @map("name") @db.VarChar(36)
+  name             String                    @map("name") @db.VarChar(128)
   studentNumber    String                    @unique @map("student_number") @db.VarChar(36)
   invitationStatus WhitelistInvitationStatus @default(PENDING) @map("invitation_status")
   invitedBy        String?                   @map("invited_by") @db.Uuid
   invitedAt        DateTime?                 @map("invited_at")
   acceptedAt       DateTime?                 @map("accepted_at")
+  deletedAt        DateTime?                 @map("deleted_at")
   updatedAt        DateTime                  @default(now()) @updatedAt @map("updated_at")
   createdAt        DateTime                  @default(now()) @map("created_at")
 
@@ -216,6 +217,7 @@ model WhitelistedUser {
 
   @@index([invitationStatus])
   @@index([invitedBy])
+  @@index([deletedAt])
   @@map("whitelisted_users")
 }
 
@@ -230,7 +232,7 @@ model Invitation {
   acceptedAt      DateTime?            @map("accepted_at")
   createdAt       DateTime             @default(now()) @map("created_at")
 
-  whitelistUser WhitelistedUser @relation(fields: [whitelistUserId], references: [id], onDelete: Cascade)
+  whitelistUser WhitelistedUser @relation(fields: [whitelistUserId], references: [id], onDelete: Restrict)
   sender        User?           @relation("InvitationSender", fields: [sentBy], references: [id], onDelete: SetNull)
 
   @@index([whitelistUserId])

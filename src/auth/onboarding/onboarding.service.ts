@@ -151,6 +151,7 @@ export class OnboardingService {
         const whitelistUpdate = await tx.whitelistedUser.updateMany({
           where: {
             id: invitation.whitelistUserId,
+            deletedAt: null,
             userId: null,
             invitationStatus: WhitelistInvitationStatus.INVITED,
           },
