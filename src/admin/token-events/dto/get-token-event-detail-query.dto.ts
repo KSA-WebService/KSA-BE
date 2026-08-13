@@ -1,11 +1,6 @@
 import { Transform, Type, type TransformFnParams } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-
-export enum TokenGrantStatusFilter {
-  ALL = 'ALL',
-  GRANTED = 'GRANTED',
-  NOT_GRANTED = 'NOT_GRANTED',
-}
+import { TokenGrantStatusValue } from '../../../common/constants/token-api-values';
 
 export class GetTokenEventDetailQueryDto {
   @Type(() => Number)
@@ -34,6 +29,6 @@ export class GetTokenEventDetailQueryDto {
   @IsString()
   keyword?: string;
 
-  @IsEnum(TokenGrantStatusFilter)
-  grantStatus = TokenGrantStatusFilter.ALL;
+  @IsEnum(TokenGrantStatusValue)
+  grantStatus = TokenGrantStatusValue.ALL;
 }

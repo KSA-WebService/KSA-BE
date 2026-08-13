@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { FilePurpose } from '@prisma/client';
+import { FilePurposeValue } from '../../../common/constants/file-api-values';
 import { CreateImageUploadUrlDto } from './create-image-upload-url.dto';
 
 describe('CreateImageUploadUrlDto', () => {
@@ -10,7 +10,7 @@ describe('CreateImageUploadUrlDto', () => {
       originalName: '  notice-image.png  ',
       contentType: 'image/png',
       fileSize: 204800,
-      purpose: FilePurpose.POST_IMAGE,
+      purpose: FilePurposeValue.POST_IMAGE,
     });
 
     const errors = await validate(dto);
@@ -23,7 +23,7 @@ describe('CreateImageUploadUrlDto', () => {
     const dto = plainToInstance(CreateImageUploadUrlDto, {
       contentType: 'image/png',
       fileSize: 204800,
-      purpose: FilePurpose.POST_IMAGE,
+      purpose: FilePurposeValue.POST_IMAGE,
     });
 
     const errors = await validate(dto);
@@ -36,7 +36,7 @@ describe('CreateImageUploadUrlDto', () => {
       originalName: 'notice-image.png',
       contentType: 'image/png',
       fileSize: 10.5,
-      purpose: FilePurpose.POST_IMAGE,
+      purpose: FilePurposeValue.POST_IMAGE,
     });
 
     const errors = await validate(dto);
@@ -55,5 +55,18 @@ describe('CreateImageUploadUrlDto', () => {
     const errors = await validate(dto);
 
     expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('should reject uppercase Prisma purpose values', async () => {
+    const dto = plainToInstance(CreateImageUploadUrlDto, {
+      originalName: 'notice-image.png',
+      contentType: 'image/png',
+      fileSize: 204800,
+      purpose: 'POST_IMAGE',
+    });
+
+    const errors = await validate(dto);
+
+    expect(errors.map((error) => error.property)).toContain('purpose');
   });
 });

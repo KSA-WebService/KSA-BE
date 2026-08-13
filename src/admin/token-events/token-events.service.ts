@@ -13,13 +13,15 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTokenEventDto } from './dto/create-token-event.dto';
-import {
-  GetTokenEventDetailQueryDto,
-  TokenGrantStatusFilter,
-} from './dto/get-token-event-detail-query.dto';
+import { GetTokenEventDetailQueryDto } from './dto/get-token-event-detail-query.dto';
 import { GetTokenEventsQueryDto } from './dto/get-token-events-query.dto';
 import { SaveTokenGrantsDto } from './dto/save-token-grants.dto';
 import { UpdateTokenEventDto } from './dto/update-token-event.dto';
+import {
+  SaveTokenGrantStatusValue,
+  TokenGrantEligibilityValue,
+  TokenGrantStatusValue,
+} from '../../common/constants/token-api-values';
 
 type SaveTokenGrantStatus = 'CREATED' | 'UPDATED' | 'UNCHANGED';
 
@@ -284,7 +286,7 @@ export class TokenEventsService {
         });
       }
 
-      if (grantStatus === TokenGrantStatusFilter.GRANTED) {
+      if (grantStatus === TokenGrantStatusValue.GRANTED) {
         memberConditions.push({
           tokenGrantsAsUser: {
             some: {
@@ -297,7 +299,7 @@ export class TokenEventsService {
         });
       }
 
-      if (grantStatus === TokenGrantStatusFilter.NOT_GRANTED) {
+      if (grantStatus === TokenGrantStatusValue.NOT_GRANTED) {
         memberConditions.push({
           OR: [
             {
@@ -415,7 +417,9 @@ export class TokenEventsService {
             name: member.name,
             studentNumber: member.studentNumber,
             email: member.email,
-            grantEligibility: isEligible ? 'ELIGIBLE' : 'ADJUSTMENT_ONLY',
+            grantEligibility: isEligible
+              ? TokenGrantEligibilityValue.ELIGIBLE
+              : TokenGrantEligibilityValue.ADJUSTMENT_ONLY,
             currentTokenBalance: member.tokenBalance,
             tokenGrantId: tokenGrant?.id ?? null,
             grantedAmount: tokenGrant?.grantedAmount ?? null,
@@ -659,7 +663,7 @@ export class TokenEventsService {
       });
 
       const items: Array<{
-        status: SaveTokenGrantStatus;
+        status: SaveTokenGrantStatusValue;
         tokenGrantId: string | null;
         tokenLogId: string | null;
         userId: string;
@@ -754,7 +758,12 @@ export class TokenEventsService {
         }
 
         items.push({
-          status: plan.status,
+          status:
+            plan.status === 'CREATED'
+              ? SaveTokenGrantStatusValue.CREATED
+              : plan.status === 'UPDATED'
+                ? SaveTokenGrantStatusValue.UPDATED
+                : SaveTokenGrantStatusValue.UNCHANGED,
           tokenGrantId,
           tokenLogId,
           userId: plan.user.id,
@@ -770,7 +779,7 @@ export class TokenEventsService {
       }
 
       const savedCount = items.filter(
-        (item) => item.status !== 'UNCHANGED',
+        (item) => item.status !== SaveTokenGrantStatusValue.UNCHANGED,
       ).length;
 
       const unchangedCount = items.length - savedCount;

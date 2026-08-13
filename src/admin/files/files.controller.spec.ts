@@ -1,5 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { FilePurpose, FileStatus } from '@prisma/client';
+import {
+  FilePurposeValue,
+  FileStatusValue,
+} from '../../common/constants/file-api-values';
 import { Request } from 'express';
 import { AdminGuard } from '../../auth/admin.guard';
 import { SupabaseAuthGuard } from '../../auth/supabase-auth.guard';
@@ -59,7 +62,7 @@ describe('FilesController', () => {
       originalName: 'notice-image.png',
       contentType: 'image/png',
       fileSize: 204800,
-      purpose: FilePurpose.POST_IMAGE,
+      purpose: FilePurposeValue.POST_IMAGE,
     };
 
     const expected = {
@@ -71,8 +74,8 @@ describe('FilesController', () => {
       uploadToken: 'signed-token',
       contentType: 'image/png',
       fileSize: 204800,
-      purpose: FilePurpose.POST_IMAGE,
-      status: FileStatus.PENDING,
+      purpose: FilePurposeValue.POST_IMAGE,
+      status: FileStatusValue.PENDING,
       expiresAt: new Date('2026-08-04T07:00:00.000Z'),
       createdAt: new Date('2026-08-04T05:00:00.000Z'),
     };
@@ -107,8 +110,8 @@ describe('FilesController', () => {
       fileUrl: `https://project.supabase.co/storage/v1/object/public/public-images/post-images/2026/08/${fileId}.png`,
       contentType: 'image/png',
       fileSize: 204800,
-      purpose: FilePurpose.POST_IMAGE,
-      status: FileStatus.COMPLETED,
+      purpose: FilePurposeValue.POST_IMAGE,
+      status: FileStatusValue.COMPLETED,
       createdAt: new Date('2026-08-05T03:30:00.000Z'),
       completedAt: new Date('2026-08-05T03:32:00.000Z'),
     };
@@ -145,7 +148,7 @@ describe('FilesController', () => {
 
     const expected = {
       fileId,
-      status: FileStatus.DELETED,
+      status: FileStatusValue.DELETED,
       deletedAt,
     };
 

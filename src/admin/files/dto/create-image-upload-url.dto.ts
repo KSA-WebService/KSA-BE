@@ -1,7 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsEnum, IsInt, IsString, MaxLength, MinLength } from 'class-validator';
-import { FilePurpose } from '@prisma/client';
-
+import { FilePurposeValue } from '../../../common/constants/file-api-values';
 export class CreateImageUploadUrlDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
@@ -17,6 +16,6 @@ export class CreateImageUploadUrlDto {
   @IsInt()
   fileSize!: number;
 
-  @IsEnum(FilePurpose)
-  purpose!: FilePurpose;
+  @IsEnum(FilePurposeValue)
+  purpose!: FilePurposeValue;
 }

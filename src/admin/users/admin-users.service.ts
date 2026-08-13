@@ -11,9 +11,37 @@ import {
   UserRole,
   UserStatus,
 } from '@prisma/client';
+import {
+  USER_ROLE_PRISMA_MAP,
+  USER_ROLE_VALUE_MAP,
+  USER_STATUS_PRISMA_MAP,
+  USER_STATUS_VALUE_MAP,
+} from '../../common/constants/user-api-values';
 import { PrismaService } from '../../prisma/prisma.service';
-import { GetAdminUsersQueryDto } from './dto/get-admin-users-query.dto';
+import {
+  AdminUserSortField,
+  GetAdminUsersQueryDto,
+} from './dto/get-admin-users-query.dto';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
+
+const ADMIN_USER_SORT_PRISMA_FIELD_MAP: Record<
+  AdminUserSortField,
+  | 'name'
+  | 'studentNumber'
+  | 'email'
+  | 'role'
+  | 'tokenBalance'
+  | 'status'
+  | 'createdAt'
+> = {
+  [AdminUserSortField.NAME]: 'name',
+  [AdminUserSortField.STUDENT_NUMBER]: 'studentNumber',
+  [AdminUserSortField.EMAIL]: 'email',
+  [AdminUserSortField.ROLE]: 'role',
+  [AdminUserSortField.TOKEN_BALANCE]: 'tokenBalance',
+  [AdminUserSortField.STATUS]: 'status',
+  [AdminUserSortField.CREATED_AT]: 'createdAt',
+};
 
 @Injectable()
 export class AdminUsersService {
@@ -24,16 +52,19 @@ export class AdminUsersService {
 
     const skip = (page - 1) * limit;
 
+    const prismaRole = role ? USER_ROLE_PRISMA_MAP[role] : undefined;
+    const prismaStatus = status ? USER_STATUS_PRISMA_MAP[status] : undefined;
+
     const where: Prisma.UserWhereInput = {
       deletedAt: null,
-      ...(role
+      ...(prismaRole
         ? {
-            role,
+            role: prismaRole,
           }
         : {}),
-      ...(status
+      ...(prismaStatus
         ? {
-            status,
+            status: prismaStatus,
           }
         : {}),
       ...(keyword
@@ -62,7 +93,7 @@ export class AdminUsersService {
     };
 
     const primaryOrderBy = {
-      [sort]: order,
+      [ADMIN_USER_SORT_PRISMA_FIELD_MAP[sort]]: order,
     } as Prisma.UserOrderByWithRelationInput;
 
     const [users, totalCount] = await this.prisma.$transaction([
@@ -98,9 +129,9 @@ export class AdminUsersService {
         name: user.name,
         studentNumber: user.studentNumber,
         email: user.email,
-        role: user.role,
+        role: USER_ROLE_VALUE_MAP[user.role],
         tokenBalance: user.tokenBalance,
-        status: user.status,
+        status: USER_STATUS_VALUE_MAP[user.status],
         createdAt: user.createdAt,
       })),
       pagination: {
@@ -148,9 +179,9 @@ export class AdminUsersService {
       name: user.name,
       studentNumber: user.studentNumber,
       email: user.email,
-      role: user.role,
+      role: USER_ROLE_VALUE_MAP[user.role],
       tokenBalance: user.tokenBalance,
-      status: user.status,
+      status: USER_STATUS_VALUE_MAP[user.status],
       agreedPrivacy: user.agreedPrivacy,
       agreedAt: user.agreedAt,
       createdAt: user.createdAt,
@@ -160,6 +191,12 @@ export class AdminUsersService {
 
   async update(userId: string, dto: UpdateAdminUserDto, adminId: string) {
     const { role, status } = dto;
+
+    const prismaRole =
+      role === undefined ? undefined : USER_ROLE_PRISMA_MAP[role];
+
+    const prismaStatus =
+      status === undefined ? undefined : USER_STATUS_PRISMA_MAP[status];
 
     if (role === undefined && status === undefined) {
       throw new BadRequestException({
@@ -200,9 +237,10 @@ export class AdminUsersService {
         });
       }
 
-      const roleChanged = role !== undefined && role !== user.role;
+      const roleChanged = prismaRole !== undefined && prismaRole !== user.role;
 
-      const statusChanged = status !== undefined && status !== user.status;
+      const statusChanged =
+        prismaStatus !== undefined && prismaStatus !== user.status;
 
       /*
        * 요청값이 현재 값과 모두 같으면
@@ -214,9 +252,9 @@ export class AdminUsersService {
           name: user.name,
           studentNumber: user.studentNumber,
           email: user.email,
-          role: user.role,
+          role: USER_ROLE_VALUE_MAP[user.role],
           tokenBalance: user.tokenBalance,
-          status: user.status,
+          status: USER_STATUS_VALUE_MAP[user.status],
           agreedPrivacy: user.agreedPrivacy,
           agreedAt: user.agreedAt,
           createdAt: user.createdAt,
@@ -227,7 +265,11 @@ export class AdminUsersService {
       /*
        * 관리자가 자기 자신의 역할을 STUDENT로 낮추는 것을 막는다.
        */
-      if (adminId === userId && roleChanged && role === UserRole.STUDENT) {
+      if (
+        adminId === userId &&
+        roleChanged &&
+        prismaRole === UserRole.STUDENT
+      ) {
         throw new ForbiddenException({
           errorCode: 'U403_SELF_ROLE_CHANGE_NOT_ALLOWED',
           message: 'Administrators cannot demote their own account',
@@ -243,7 +285,7 @@ export class AdminUsersService {
       if (
         adminId === userId &&
         statusChanged &&
-        status === UserStatus.BLOCKED
+        prismaStatus === UserStatus.BLOCKED
       ) {
         throw new ForbiddenException({
           errorCode: 'U403_SELF_BLOCK_NOT_ALLOWED',
@@ -256,12 +298,12 @@ export class AdminUsersService {
 
       const updateData: Prisma.UserUpdateInput = {};
 
-      if (roleChanged && role !== undefined) {
-        updateData.role = role;
+      if (roleChanged && prismaRole !== undefined) {
+        updateData.role = prismaRole;
       }
 
-      if (statusChanged && status !== undefined) {
-        updateData.status = status;
+      if (statusChanged && prismaStatus !== undefined) {
+        updateData.status = prismaStatus;
       }
 
       const updatedUser = await tx.user.update({
@@ -284,7 +326,7 @@ export class AdminUsersService {
         },
       });
 
-      if (roleChanged && role !== undefined) {
+      if (roleChanged && prismaRole !== undefined) {
         await tx.adminActionLog.create({
           data: {
             adminId,
@@ -293,13 +335,13 @@ export class AdminUsersService {
             targetId: userId,
             metadata: {
               beforeRole: user.role,
-              afterRole: role,
+              afterRole: prismaRole,
             },
           },
         });
       }
 
-      if (statusChanged && status !== undefined) {
+      if (statusChanged && prismaStatus !== undefined) {
         await tx.adminActionLog.create({
           data: {
             adminId,
@@ -308,7 +350,7 @@ export class AdminUsersService {
             targetId: userId,
             metadata: {
               beforeStatus: user.status,
-              afterStatus: status,
+              afterStatus: prismaStatus,
             },
           },
         });
@@ -319,9 +361,9 @@ export class AdminUsersService {
         name: updatedUser.name,
         studentNumber: updatedUser.studentNumber,
         email: updatedUser.email,
-        role: updatedUser.role,
+        role: USER_ROLE_VALUE_MAP[updatedUser.role],
         tokenBalance: updatedUser.tokenBalance,
-        status: updatedUser.status,
+        status: USER_STATUS_VALUE_MAP[updatedUser.status],
         agreedPrivacy: updatedUser.agreedPrivacy,
         agreedAt: updatedUser.agreedAt,
         createdAt: updatedUser.createdAt,

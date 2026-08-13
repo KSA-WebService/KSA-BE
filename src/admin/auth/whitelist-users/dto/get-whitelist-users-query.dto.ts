@@ -1,21 +1,13 @@
 import { Type, Transform } from 'class-transformer';
-import {
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
-import { WhitelistInvitationStatus } from '@prisma/client';
-
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { WhitelistInvitationStatusValue } from '../../../../common/constants/invitation-api-values';
 export enum WhitelistUserSortField {
   NAME = 'name',
-  STUDENT_NUMBER = 'studentNumber',
+  STUDENT_NUMBER = 'student_number',
   EMAIL = 'email',
-  INVITATION_STATUS = 'invitationStatus',
-  INVITED_AT = 'invitedAt',
-  CREATED_AT = 'createdAt',
+  INVITATION_STATUS = 'invitation_status',
+  INVITED_AT = 'invited_at',
+  CREATED_AT = 'created_at',
 }
 
 export enum SortOrder {
@@ -38,7 +30,7 @@ export class GetWhitelistUsersQueryDto {
   limit: number = 20;
 
   @IsOptional()
-  @Transform(({ value }) => {
+  @Transform(({ value }: { value: unknown }) => {
     if (typeof value !== 'string') {
       return value;
     }
@@ -51,8 +43,8 @@ export class GetWhitelistUsersQueryDto {
   keyword?: string;
 
   @IsOptional()
-  @IsEnum(WhitelistInvitationStatus)
-  invitationStatus?: WhitelistInvitationStatus;
+  @IsEnum(WhitelistInvitationStatusValue)
+  invitationStatus?: WhitelistInvitationStatusValue;
 
   @IsOptional()
   @IsEnum(WhitelistUserSortField)

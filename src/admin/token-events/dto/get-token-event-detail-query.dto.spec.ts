@@ -1,10 +1,8 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import {
-  GetTokenEventDetailQueryDto,
-  TokenGrantStatusFilter,
-} from './get-token-event-detail-query.dto';
+import { TokenGrantStatusValue } from '../../../common/constants/token-api-values';
+import { GetTokenEventDetailQueryDto } from './get-token-event-detail-query.dto';
 
 describe('GetTokenEventDetailQueryDto', () => {
   it('should apply default query values', async () => {
@@ -16,7 +14,7 @@ describe('GetTokenEventDetailQueryDto', () => {
     expect(dto.page).toBe(1);
     expect(dto.limit).toBe(20);
     expect(dto.keyword).toBeUndefined();
-    expect(dto.grantStatus).toBe(TokenGrantStatusFilter.ALL);
+    expect(dto.grantStatus).toBe(TokenGrantStatusValue.ALL);
   });
 
   it('should transform pagination and trim keyword', async () => {
@@ -24,7 +22,7 @@ describe('GetTokenEventDetailQueryDto', () => {
       page: '2',
       limit: '50',
       keyword: '  Sulynn  ',
-      grantStatus: 'GRANTED',
+      grantStatus: 'granted',
     });
 
     const errors = await validate(dto);
@@ -33,7 +31,7 @@ describe('GetTokenEventDetailQueryDto', () => {
     expect(dto.page).toBe(2);
     expect(dto.limit).toBe(50);
     expect(dto.keyword).toBe('Sulynn');
-    expect(dto.grantStatus).toBe(TokenGrantStatusFilter.GRANTED);
+    expect(dto.grantStatus).toBe(TokenGrantStatusValue.GRANTED);
   });
 
   it('should treat a whitespace-only keyword as absent', async () => {
@@ -48,9 +46,9 @@ describe('GetTokenEventDetailQueryDto', () => {
   });
 
   it.each([
-    TokenGrantStatusFilter.ALL,
-    TokenGrantStatusFilter.GRANTED,
-    TokenGrantStatusFilter.NOT_GRANTED,
+    TokenGrantStatusValue.ALL,
+    TokenGrantStatusValue.GRANTED,
+    TokenGrantStatusValue.NOT_GRANTED,
   ])('should accept grant status %s', async (grantStatus) => {
     const dto = plainToInstance(GetTokenEventDetailQueryDto, {
       grantStatus,

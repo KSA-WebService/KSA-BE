@@ -13,6 +13,11 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseAdminService } from '../../auth/supabase-admin.service';
 import { FilesService } from './files.service';
+import {
+  FilePurposeValue,
+  FileReferenceTypeValue,
+  FileStatusValue,
+} from '../../common/constants/file-api-values';
 
 jest.mock('crypto', () => {
   const actualCrypto = jest.requireActual<typeof import('crypto')>('crypto');
@@ -197,7 +202,7 @@ describe('FilesService', () => {
           originalName: 'notice-image.png',
           contentType: 'image/png',
           fileSize: 204800,
-          purpose: FilePurpose.POST_IMAGE,
+          purpose: FilePurposeValue.POST_IMAGE,
         },
         adminId,
       ),
@@ -209,8 +214,8 @@ describe('FilesService', () => {
       uploadToken: 'signed-upload-token',
       contentType: 'image/png',
       fileSize: 204800,
-      purpose: FilePurpose.POST_IMAGE,
-      status: FileStatus.PENDING,
+      purpose: FilePurposeValue.POST_IMAGE,
+      status: FileStatusValue.PENDING,
       expiresAt: new Date('2026-08-04T07:00:00.000Z'),
       createdAt,
     });
@@ -252,7 +257,7 @@ describe('FilesService', () => {
           originalName: 'image.gif',
           contentType: 'image/gif',
           fileSize: 204800,
-          purpose: FilePurpose.POST_IMAGE,
+          purpose: FilePurposeValue.POST_IMAGE,
         },
         'admin-id',
       ),
@@ -268,7 +273,7 @@ describe('FilesService', () => {
           originalName: 'image.png',
           contentType: 'image/png',
           fileSize: 5 * 1024 * 1024 + 1,
-          purpose: FilePurpose.POST_IMAGE,
+          purpose: FilePurposeValue.POST_IMAGE,
         },
         'admin-id',
       ),
@@ -287,7 +292,7 @@ describe('FilesService', () => {
           originalName: 'image.jpg',
           contentType: 'image/png',
           fileSize: 204800,
-          purpose: FilePurpose.POST_IMAGE,
+          purpose: FilePurposeValue.POST_IMAGE,
         },
         'admin-id',
       ),
@@ -310,7 +315,7 @@ describe('FilesService', () => {
           originalName: 'image.webp',
           contentType: 'image/webp',
           fileSize: 204800,
-          purpose: FilePurpose.GENERAL_IMAGE,
+          purpose: FilePurposeValue.GENERAL_IMAGE,
         },
         'admin-id',
       ),
@@ -344,8 +349,8 @@ describe('FilesService', () => {
       fileUrl,
       contentType: pendingFile.contentType,
       fileSize: pendingFile.fileSize,
-      purpose: pendingFile.purpose,
-      status: FileStatus.COMPLETED,
+      purpose: FilePurposeValue.POST_IMAGE,
+      status: FileStatusValue.COMPLETED,
       createdAt,
       completedAt,
     });
@@ -449,8 +454,8 @@ describe('FilesService', () => {
       fileUrl,
       contentType: completedFile.contentType,
       fileSize: completedFile.fileSize,
-      purpose: completedFile.purpose,
-      status: FileStatus.COMPLETED,
+      purpose: FilePurposeValue.POST_IMAGE,
+      status: FileStatusValue.COMPLETED,
       createdAt,
       completedAt,
     });
@@ -559,8 +564,8 @@ describe('FilesService', () => {
       fileUrl,
       contentType: completedFile.contentType,
       fileSize: completedFile.fileSize,
-      purpose: completedFile.purpose,
-      status: FileStatus.COMPLETED,
+      purpose: FilePurposeValue.POST_IMAGE,
+      status: FileStatusValue.COMPLETED,
       createdAt,
       completedAt,
     });
@@ -587,7 +592,7 @@ describe('FilesService', () => {
 
     await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
       fileId,
-      status: FileStatus.DELETED,
+      status: FileStatusValue.DELETED,
       deletedAt,
     });
 
@@ -644,7 +649,7 @@ describe('FilesService', () => {
 
     await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
       fileId,
-      status: FileStatus.DELETED,
+      status: FileStatusValue.DELETED,
       deletedAt,
     });
 
@@ -700,7 +705,7 @@ describe('FilesService', () => {
 
     await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
       fileId,
-      status: FileStatus.DELETED,
+      status: FileStatusValue.DELETED,
       deletedAt,
     });
 
@@ -728,15 +733,15 @@ describe('FilesService', () => {
         data: {
           references: [
             {
-              type: 'PRODUCT',
+              type: FileReferenceTypeValue.PRODUCT,
               count: 1,
             },
             {
-              type: 'CONTENT_POST',
+              type: FileReferenceTypeValue.CONTENT_POST,
               count: 2,
             },
             {
-              type: 'CLUB',
+              type: FileReferenceTypeValue.CLUB,
               count: 1,
             },
           ],
@@ -809,7 +814,7 @@ describe('FilesService', () => {
 
     await expect(service.deleteFile(fileId, adminId)).resolves.toEqual({
       fileId,
-      status: FileStatus.DELETED,
+      status: FileStatusValue.DELETED,
       deletedAt,
     });
 

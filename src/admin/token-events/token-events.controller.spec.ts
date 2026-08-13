@@ -7,10 +7,8 @@ import { CreateTokenEventDto } from './dto/create-token-event.dto';
 import { TokenEventsController } from './token-events.controller';
 import { TokenEventsService } from './token-events.service';
 import { GetTokenEventsQueryDto } from './dto/get-token-events-query.dto';
-import {
-  GetTokenEventDetailQueryDto,
-  TokenGrantStatusFilter,
-} from './dto/get-token-event-detail-query.dto';
+import { TokenGrantStatusValue } from '../../common/constants/token-api-values';
+import { GetTokenEventDetailQueryDto } from './dto/get-token-event-detail-query.dto';
 import { SaveTokenGrantsDto } from './dto/save-token-grants.dto';
 import { UpdateTokenEventDto } from './dto/update-token-event.dto';
 
@@ -133,7 +131,7 @@ describe('TokenEventsController', () => {
       page: 1,
       limit: 20,
       keyword: 'Sulynn',
-      grantStatus: TokenGrantStatusFilter.ALL,
+      grantStatus: TokenGrantStatusValue.ALL,
     };
 
     const result = {

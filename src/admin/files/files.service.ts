@@ -19,6 +19,12 @@ import { extname } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SupabaseAdminService } from '../../auth/supabase-admin.service';
 import { CreateImageUploadUrlDto } from './dto/create-image-upload-url.dto';
+import {
+  FILE_PURPOSE_PRISMA_MAP,
+  FILE_PURPOSE_VALUE_MAP,
+  FILE_STATUS_VALUE_MAP,
+  FileReferenceTypeValue,
+} from '../../common/constants/file-api-values';
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const SIGNED_UPLOAD_VALIDITY_MS = 2 * 60 * 60 * 1000;
@@ -92,10 +98,8 @@ type DeleteFileRecord = Prisma.FileGetPayload<{
   select: typeof DELETE_FILE_SELECT;
 }>;
 
-type FileReferenceType = 'PRODUCT' | 'CONTENT_POST' | 'CLUB';
-
 type FileReference = {
-  type: FileReferenceType;
+  type: FileReferenceTypeValue;
   count: number;
 };
 
@@ -108,6 +112,8 @@ export class FilesService {
 
   async createImageUploadUrl(dto: CreateImageUploadUrlDto, adminId: string) {
     const imageTypeRule = IMAGE_TYPE_RULES[dto.contentType];
+
+    const prismaPurpose = FILE_PURPOSE_PRISMA_MAP[dto.purpose];
 
     if (!imageTypeRule) {
       throw new BadRequestException({
@@ -126,7 +132,7 @@ export class FilesService {
 
     const month = String(createdAt.getUTCMonth() + 1).padStart(2, '0');
 
-    const folder = PURPOSE_FOLDERS[dto.purpose];
+    const folder = PURPOSE_FOLDERS[prismaPurpose];
 
     const storagePath = [
       folder,
@@ -161,7 +167,7 @@ export class FilesService {
         fileUrl,
         contentType: dto.contentType,
         fileSize: dto.fileSize,
-        purpose: dto.purpose,
+        purpose: prismaPurpose,
         status: FileStatus.PENDING,
         createdAt,
       },
@@ -185,8 +191,8 @@ export class FilesService {
       uploadToken: signedUpload.token,
       contentType: file.contentType,
       fileSize: file.fileSize,
-      purpose: file.purpose,
-      status: file.status,
+      purpose: FILE_PURPOSE_VALUE_MAP[file.purpose],
+      status: FILE_STATUS_VALUE_MAP[file.status],
       expiresAt: new Date(file.createdAt.getTime() + SIGNED_UPLOAD_VALIDITY_MS),
       createdAt: file.createdAt,
     };
@@ -430,11 +436,10 @@ export class FilesService {
           },
         });
 
-        return {
-          fileId: currentFile.id,
-          status: FileStatus.DELETED,
+        return this.toFileDeletionResponse({
+          id: currentFile.id,
           deletedAt,
-        };
+        });
       });
     } catch (error: unknown) {
       if (error instanceof HttpException) {
@@ -525,8 +530,8 @@ export class FilesService {
       fileUrl: file.fileUrl,
       contentType: file.contentType,
       fileSize: file.fileSize,
-      purpose: file.purpose,
-      status: file.status,
+      purpose: FILE_PURPOSE_VALUE_MAP[file.purpose],
+      status: FILE_STATUS_VALUE_MAP[file.status],
       createdAt: file.createdAt,
       completedAt: file.completedAt,
     };
@@ -551,21 +556,21 @@ export class FilesService {
 
     if (file._count.products > 0) {
       references.push({
-        type: 'PRODUCT',
+        type: FileReferenceTypeValue.PRODUCT,
         count: file._count.products,
       });
     }
 
     if (file._count.contentImages > 0) {
       references.push({
-        type: 'CONTENT_POST',
+        type: FileReferenceTypeValue.CONTENT_POST,
         count: file._count.contentImages,
       });
     }
 
     if (file._count.clubImages > 0) {
       references.push({
-        type: 'CLUB',
+        type: FileReferenceTypeValue.CLUB,
         count: file._count.clubImages,
       });
     }
@@ -583,7 +588,7 @@ export class FilesService {
   private toFileDeletionResponse(file: { id: string; deletedAt: Date | null }) {
     return {
       fileId: file.id,
-      status: FileStatus.DELETED,
+      status: FILE_STATUS_VALUE_MAP[FileStatus.DELETED],
       deletedAt: file.deletedAt,
     };
   }

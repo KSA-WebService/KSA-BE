@@ -10,12 +10,18 @@ import { isEmail } from 'class-validator';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { InvitationMailService } from './invitation-mail.service';
 import {
+  InvitationResendStatusValue,
+  InvitationSendStatusValue,
   ResendInvitationResult,
   ResendInvitationsResponse,
   SendInvitationResult,
   SendInvitationsDto,
   SendInvitationsResponse,
 } from './dto/send-invitations.dto';
+import {
+  INVITATION_LINK_STATUS_VALUE_MAP,
+  WHITELIST_INVITATION_STATUS_VALUE_MAP,
+} from '../../../common/constants/invitation-api-values';
 
 @Injectable()
 export class InvitationsService {
@@ -63,7 +69,7 @@ export class InvitationsService {
           whitelistUserId,
           email: null,
           invitationId: null,
-          sendStatus: 'FAILED',
+          sendStatus: InvitationSendStatusValue.FAILED,
           invitationStatus: null,
           linkStatus: null,
           sentAt: null,
@@ -83,8 +89,11 @@ export class InvitationsService {
           whitelistUserId,
           email: whitelistUser.email,
           invitationId: null,
-          sendStatus: 'SKIPPED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationSendStatusValue.SKIPPED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -105,8 +114,11 @@ export class InvitationsService {
           whitelistUserId,
           email: whitelistUser.email,
           invitationId: null,
-          sendStatus: 'SKIPPED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationSendStatusValue.SKIPPED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -127,8 +139,11 @@ export class InvitationsService {
           whitelistUserId,
           email: whitelistUser.email,
           invitationId: null,
-          sendStatus: 'SKIPPED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationSendStatusValue.SKIPPED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -151,8 +166,11 @@ export class InvitationsService {
           whitelistUserId,
           email: whitelistUser.email,
           invitationId: null,
-          sendStatus: 'SKIPPED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationSendStatusValue.SKIPPED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -174,8 +192,11 @@ export class InvitationsService {
           whitelistUserId,
           email: normalizedEmail,
           invitationId: null,
-          sendStatus: 'FAILED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationSendStatusValue.FAILED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -259,9 +280,13 @@ export class InvitationsService {
           whitelistUserId,
           email: normalizedEmail,
           invitationId: invitation.id,
-          sendStatus: 'FAILED',
-          invitationStatus: WhitelistInvitationStatus.FAILED,
-          linkStatus: InvitationLinkStatus.FAILED,
+          sendStatus: InvitationSendStatusValue.FAILED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              WhitelistInvitationStatus.FAILED
+            ],
+          linkStatus:
+            INVITATION_LINK_STATUS_VALUE_MAP[InvitationLinkStatus.FAILED],
           sentAt,
           expiresAt,
           errorCode: 'I502_EMAIL_SEND_FAILED',
@@ -306,9 +331,13 @@ export class InvitationsService {
         whitelistUserId,
         email: normalizedEmail,
         invitationId: invitation.id,
-        sendStatus: 'SENT',
-        invitationStatus: WhitelistInvitationStatus.INVITED,
-        linkStatus: InvitationLinkStatus.ACTIVE,
+        sendStatus: InvitationSendStatusValue.SENT,
+        invitationStatus:
+          WHITELIST_INVITATION_STATUS_VALUE_MAP[
+            WhitelistInvitationStatus.INVITED
+          ],
+        linkStatus:
+          INVITATION_LINK_STATUS_VALUE_MAP[InvitationLinkStatus.ACTIVE],
         sentAt,
         expiresAt,
         errorCode: null,
@@ -361,7 +390,7 @@ export class InvitationsService {
           whitelistUserId,
           email: null,
           invitationId: null,
-          sendStatus: 'FAILED',
+          sendStatus: InvitationResendStatusValue.FAILED,
           invitationStatus: null,
           linkStatus: null,
           sentAt: null,
@@ -381,8 +410,11 @@ export class InvitationsService {
           whitelistUserId,
           email: whitelistUser.email,
           invitationId: null,
-          sendStatus: 'SKIPPED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationResendStatusValue.SKIPPED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -403,8 +435,11 @@ export class InvitationsService {
           whitelistUserId,
           email: whitelistUser.email,
           invitationId: null,
-          sendStatus: 'SKIPPED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationResendStatusValue.SKIPPED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -425,8 +460,11 @@ export class InvitationsService {
           whitelistUserId,
           email: whitelistUser.email,
           invitationId: null,
-          sendStatus: 'SKIPPED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationResendStatusValue.SKIPPED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -456,8 +494,11 @@ export class InvitationsService {
           whitelistUserId,
           email: normalizedEmail,
           invitationId: null,
-          sendStatus: 'FAILED',
-          invitationStatus: whitelistUser.invitationStatus,
+          sendStatus: InvitationResendStatusValue.FAILED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
@@ -535,9 +576,13 @@ export class InvitationsService {
           whitelistUserId,
           email: normalizedEmail,
           invitationId: invitation.id,
-          sendStatus: 'FAILED',
-          invitationStatus: whitelistUser.invitationStatus,
-          linkStatus: InvitationLinkStatus.FAILED,
+          sendStatus: InvitationResendStatusValue.FAILED,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              whitelistUser.invitationStatus
+            ],
+          linkStatus:
+            INVITATION_LINK_STATUS_VALUE_MAP[InvitationLinkStatus.FAILED],
           sentAt,
           expiresAt,
           errorCode: 'I502_EMAIL_RESEND_FAILED',
@@ -617,9 +662,13 @@ export class InvitationsService {
         whitelistUserId,
         email: normalizedEmail,
         invitationId: invitation.id,
-        sendStatus: 'RESENT',
-        invitationStatus: WhitelistInvitationStatus.INVITED,
-        linkStatus: InvitationLinkStatus.ACTIVE,
+        sendStatus: InvitationResendStatusValue.RESENT,
+        invitationStatus:
+          WHITELIST_INVITATION_STATUS_VALUE_MAP[
+            WhitelistInvitationStatus.INVITED
+          ],
+        linkStatus:
+          INVITATION_LINK_STATUS_VALUE_MAP[InvitationLinkStatus.ACTIVE],
         sentAt,
         expiresAt,
         errorCode: null,
@@ -681,12 +730,15 @@ export class InvitationsService {
   ): SendInvitationsResponse {
     return {
       requestedCount: results.length,
-      sentCount: results.filter((result) => result.sendStatus === 'SENT')
-        .length,
-      skippedCount: results.filter((result) => result.sendStatus === 'SKIPPED')
-        .length,
-      failedCount: results.filter((result) => result.sendStatus === 'FAILED')
-        .length,
+      sentCount: results.filter(
+        (result) => result.sendStatus === InvitationSendStatusValue.SENT,
+      ).length,
+      skippedCount: results.filter(
+        (result) => result.sendStatus === InvitationSendStatusValue.SKIPPED,
+      ).length,
+      failedCount: results.filter(
+        (result) => result.sendStatus === InvitationSendStatusValue.FAILED,
+      ).length,
       results,
     };
   }
@@ -696,12 +748,15 @@ export class InvitationsService {
   ): ResendInvitationsResponse {
     return {
       requestedCount: results.length,
-      resentCount: results.filter((result) => result.sendStatus === 'RESENT')
-        .length,
-      skippedCount: results.filter((result) => result.sendStatus === 'SKIPPED')
-        .length,
-      failedCount: results.filter((result) => result.sendStatus === 'FAILED')
-        .length,
+      resentCount: results.filter(
+        (result) => result.sendStatus === InvitationResendStatusValue.RESENT,
+      ).length,
+      skippedCount: results.filter(
+        (result) => result.sendStatus === InvitationResendStatusValue.SKIPPED,
+      ).length,
+      failedCount: results.filter(
+        (result) => result.sendStatus === InvitationResendStatusValue.FAILED,
+      ).length,
       results,
     };
   }

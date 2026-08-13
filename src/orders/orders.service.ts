@@ -35,6 +35,11 @@ import {
   UpdateOrderStatusDto,
 } from './dto/update-order-status.dto';
 
+import {
+  ORDER_STATUS_VALUE_MAP,
+  OrderStatusValue,
+} from '../common/constants/order-api-values';
+
 const MAX_SERIALIZABLE_TRANSACTION_RETRIES = 3;
 const MAX_DATABASE_INT = 2_147_483_647;
 
@@ -335,7 +340,7 @@ export class OrdersService {
           quantity: createdOrder.quantity,
           unitPrice: createdOrder.unitPrice,
           totalAmount: createdOrder.totalAmount,
-          orderStatus: 'ordered',
+          orderStatus: OrderStatusValue.ORDERED,
           remainingTokenBalance: balanceAfter,
           orderedAt: createdOrder.createdAt,
         };
@@ -437,7 +442,7 @@ export class OrdersService {
         quantity: order.quantity,
         unitPrice: order.unitPrice,
         totalAmount: order.totalAmount,
-        orderStatus: order.status.toLowerCase(),
+        orderStatus: ORDER_STATUS_VALUE_MAP[order.status],
         orderedAt: order.createdAt,
         acceptedAt: order.acceptedAt,
         deliveredAt: order.deliveredAt,
@@ -574,7 +579,7 @@ export class OrdersService {
         quantity: order.quantity,
         unitPrice: order.unitPrice,
         totalAmount: order.totalAmount,
-        orderStatus: order.status.toLowerCase(),
+        orderStatus: ORDER_STATUS_VALUE_MAP[order.status],
         orderedAt: order.createdAt,
         acceptedAt: order.acceptedAt,
         deliveredAt: order.deliveredAt,
@@ -950,7 +955,7 @@ export class OrdersService {
       quantity: order.quantity,
       unitPrice: order.unitPrice,
       totalAmount: order.totalAmount,
-      orderStatus: 'ordered',
+      orderStatus: OrderStatusValue.ORDERED,
       remainingTokenBalance: paymentLog.balanceAfter,
       orderedAt: order.createdAt,
     };
@@ -1117,7 +1122,7 @@ export class OrdersService {
       quantity: order.quantity,
       unitPrice: order.unitPrice,
       totalAmount: order.totalAmount,
-      orderStatus: order.status.toLowerCase(),
+      orderStatus: ORDER_STATUS_VALUE_MAP[order.status],
       orderedAt: order.createdAt,
       acceptedAt: order.acceptedAt,
       deliveredAt: order.deliveredAt,

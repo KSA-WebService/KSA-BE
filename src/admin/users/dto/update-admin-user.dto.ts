@@ -1,12 +1,15 @@
-import { UserRole, UserStatus } from '@prisma/client';
 import { IsEnum, ValidateIf } from 'class-validator';
+import {
+  UserRoleValue,
+  UserStatusValue,
+} from '../../../common/constants/user-api-values';
 
 export class UpdateAdminUserDto {
   @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
-  @IsEnum(UserRole)
-  role?: UserRole;
+  @IsEnum(UserRoleValue)
+  role?: UserRoleValue;
 
   @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
-  @IsEnum(UserStatus)
-  status?: UserStatus;
+  @IsEnum(UserStatusValue)
+  status?: UserStatusValue;
 }

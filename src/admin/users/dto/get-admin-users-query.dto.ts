@@ -8,16 +8,19 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { UserRole, UserStatus } from '@prisma/client';
+import {
+  UserRoleValue,
+  UserStatusValue,
+} from '../../../common/constants/user-api-values';
 
 export enum AdminUserSortField {
   NAME = 'name',
-  STUDENT_NUMBER = 'studentNumber',
+  STUDENT_NUMBER = 'student_number',
   EMAIL = 'email',
   ROLE = 'role',
-  TOKEN_BALANCE = 'tokenBalance',
+  TOKEN_BALANCE = 'token_balance',
   STATUS = 'status',
-  CREATED_AT = 'createdAt',
+  CREATED_AT = 'created_at',
 }
 
 export enum SortOrder {
@@ -56,12 +59,12 @@ export class GetAdminUsersQueryDto {
   keyword?: string;
 
   @IsOptional()
-  @IsEnum(UserRole)
-  role?: UserRole;
+  @IsEnum(UserRoleValue)
+  role?: UserRoleValue;
 
   @IsOptional()
-  @IsEnum(UserStatus)
-  status?: UserStatus;
+  @IsEnum(UserStatusValue)
+  status?: UserStatusValue;
 
   @IsOptional()
   @IsEnum(AdminUserSortField)

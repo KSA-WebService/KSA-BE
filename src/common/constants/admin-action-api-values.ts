@@ -1,0 +1,88 @@
+import { AdminAction, AdminActionType } from '@prisma/client';
+
+export enum AdminActionTypeValue {
+  USER = 'user',
+  WHITELIST = 'whitelist',
+  INVITATION = 'invitation',
+  CONTENT = 'content',
+  PRODUCT = 'product',
+  ORDER = 'order',
+  TOKEN = 'token',
+  FILE = 'file',
+  MEMO = 'memo',
+}
+
+export enum AdminActionValue {
+  UPDATE_USER_ROLE = 'update_user_role',
+  UPDATE_USER_STATUS = 'update_user_status',
+  CREATE_WHITELIST_USER = 'create_whitelist_user',
+  IMPORT_WHITELIST_USERS = 'import_whitelist_users',
+  DELETE_WHITELIST_USER = 'delete_whitelist_user',
+  SEND_INVITATION = 'send_invitation',
+  RESEND_INVITATION = 'resend_invitation',
+  CREATE_CONTENT_POST = 'create_content_post',
+  UPDATE_CONTENT_POST = 'update_content_post',
+  UPDATE_CONTENT_POST_STATUS = 'update_content_post_status',
+  DELETE_CONTENT_POST = 'delete_content_post',
+  CREATE_PRODUCT = 'create_product',
+  UPDATE_PRODUCT = 'update_product',
+  UPDATE_PRODUCT_PUBLICATION_STATUS = 'update_product_publication_status',
+  DELETE_PRODUCT = 'delete_product',
+  UPDATE_ORDER_STATUS = 'update_order_status',
+  CREATE_TOKEN_EVENT = 'create_token_event',
+  UPDATE_TOKEN_EVENT = 'update_token_event',
+  GRANT_TOKEN = 'grant_token',
+  UPDATE_TOKEN_GRANT = 'update_token_grant',
+  SAVE_TOKEN_GRANTS = 'save_token_grants',
+  RESET_TOKEN_BALANCES = 'reset_token_balances',
+  DELETE_TOKEN_EVENT = 'delete_token_event',
+  UPLOAD_FILE = 'upload_file',
+  DELETE_FILE = 'delete_file',
+  UPDATE_MEMO = 'update_memo',
+}
+
+export const ADMIN_ACTION_TYPE_VALUE_MAP: Record<
+  AdminActionType,
+  AdminActionTypeValue
+> = {
+  [AdminActionType.USER]: AdminActionTypeValue.USER,
+  [AdminActionType.WHITELIST]: AdminActionTypeValue.WHITELIST,
+  [AdminActionType.INVITATION]: AdminActionTypeValue.INVITATION,
+  [AdminActionType.CONTENT]: AdminActionTypeValue.CONTENT,
+  [AdminActionType.PRODUCT]: AdminActionTypeValue.PRODUCT,
+  [AdminActionType.ORDER]: AdminActionTypeValue.ORDER,
+  [AdminActionType.TOKEN]: AdminActionTypeValue.TOKEN,
+  [AdminActionType.FILE]: AdminActionTypeValue.FILE,
+  [AdminActionType.MEMO]: AdminActionTypeValue.MEMO,
+};
+
+export const ADMIN_ACTION_VALUE_MAP: Record<AdminAction, AdminActionValue> = {
+  [AdminAction.UPDATE_USER_ROLE]: AdminActionValue.UPDATE_USER_ROLE,
+  [AdminAction.UPDATE_USER_STATUS]: AdminActionValue.UPDATE_USER_STATUS,
+  [AdminAction.CREATE_WHITELIST_USER]: AdminActionValue.CREATE_WHITELIST_USER,
+  [AdminAction.IMPORT_WHITELIST_USERS]: AdminActionValue.IMPORT_WHITELIST_USERS,
+  [AdminAction.DELETE_WHITELIST_USER]: AdminActionValue.DELETE_WHITELIST_USER,
+  [AdminAction.SEND_INVITATION]: AdminActionValue.SEND_INVITATION,
+  [AdminAction.RESEND_INVITATION]: AdminActionValue.RESEND_INVITATION,
+  [AdminAction.CREATE_CONTENT_POST]: AdminActionValue.CREATE_CONTENT_POST,
+  [AdminAction.UPDATE_CONTENT_POST]: AdminActionValue.UPDATE_CONTENT_POST,
+  [AdminAction.UPDATE_CONTENT_POST_STATUS]:
+    AdminActionValue.UPDATE_CONTENT_POST_STATUS,
+  [AdminAction.DELETE_CONTENT_POST]: AdminActionValue.DELETE_CONTENT_POST,
+  [AdminAction.CREATE_PRODUCT]: AdminActionValue.CREATE_PRODUCT,
+  [AdminAction.UPDATE_PRODUCT]: AdminActionValue.UPDATE_PRODUCT,
+  [AdminAction.UPDATE_PRODUCT_PUBLICATION_STATUS]:
+    AdminActionValue.UPDATE_PRODUCT_PUBLICATION_STATUS,
+  [AdminAction.DELETE_PRODUCT]: AdminActionValue.DELETE_PRODUCT,
+  [AdminAction.UPDATE_ORDER_STATUS]: AdminActionValue.UPDATE_ORDER_STATUS,
+  [AdminAction.CREATE_TOKEN_EVENT]: AdminActionValue.CREATE_TOKEN_EVENT,
+  [AdminAction.UPDATE_TOKEN_EVENT]: AdminActionValue.UPDATE_TOKEN_EVENT,
+  [AdminAction.GRANT_TOKEN]: AdminActionValue.GRANT_TOKEN,
+  [AdminAction.UPDATE_TOKEN_GRANT]: AdminActionValue.UPDATE_TOKEN_GRANT,
+  [AdminAction.SAVE_TOKEN_GRANTS]: AdminActionValue.SAVE_TOKEN_GRANTS,
+  [AdminAction.RESET_TOKEN_BALANCES]: AdminActionValue.RESET_TOKEN_BALANCES,
+  [AdminAction.DELETE_TOKEN_EVENT]: AdminActionValue.DELETE_TOKEN_EVENT,
+  [AdminAction.UPLOAD_FILE]: AdminActionValue.UPLOAD_FILE,
+  [AdminAction.DELETE_FILE]: AdminActionValue.DELETE_FILE,
+  [AdminAction.UPDATE_MEMO]: AdminActionValue.UPDATE_MEMO,
+};

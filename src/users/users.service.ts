@@ -2,6 +2,11 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GetMyTokenLogsQueryDto } from './dto/get-my-token-logs-query.dto';
+import {
+  USER_ROLE_VALUE_MAP,
+  USER_STATUS_VALUE_MAP,
+} from '../common/constants/user-api-values';
+import { TOKEN_TRANSACTION_TYPE_VALUE_MAP } from '../common/constants/token-api-values';
 
 @Injectable()
 export class UsersService {
@@ -39,9 +44,9 @@ export class UsersService {
       name: user.name,
       studentNumber: user.studentNumber,
       email: user.email,
-      role: user.role,
+      role: USER_ROLE_VALUE_MAP[user.role],
       tokenBalance: user.tokenBalance,
-      status: user.status,
+      status: USER_STATUS_VALUE_MAP[user.status],
       agreedPrivacy: user.agreedPrivacy,
       agreedAt: user.agreedAt,
     };
@@ -130,7 +135,8 @@ export class UsersService {
       currentTokenBalance: user.tokenBalance,
       items: tokenLogs.map((tokenLog) => ({
         tokenLogId: tokenLog.id,
-        transactionType: tokenLog.transactionType,
+        transactionType:
+          TOKEN_TRANSACTION_TYPE_VALUE_MAP[tokenLog.transactionType],
         delta: tokenLog.delta,
         reason: tokenLog.tokenGrant?.reason ?? tokenLog.reason,
         balanceBefore: tokenLog.balanceBefore,

@@ -7,7 +7,11 @@ import {
   UserRole,
   UserStatus,
 } from '@prisma/client';
-import { TokenGrantStatusFilter } from './dto/get-token-event-detail-query.dto';
+import {
+  SaveTokenGrantStatusValue,
+  TokenGrantEligibilityValue,
+  TokenGrantStatusValue,
+} from '../../common/constants/token-api-values';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TokenEventsService } from './token-events.service';
 
@@ -449,7 +453,7 @@ describe('TokenEventsService', () => {
         page: 1,
         limit: 20,
         keyword: 'Alex',
-        grantStatus: TokenGrantStatusFilter.ALL,
+        grantStatus: TokenGrantStatusValue.ALL,
       }),
     ).resolves.toEqual({
       tokenEventId,
@@ -468,7 +472,7 @@ describe('TokenEventsService', () => {
           name: 'Alex Chan',
           studentNumber: '20967890',
           email: 'alex.chan@connect.ust.hk',
-          grantEligibility: 'ELIGIBLE',
+          grantEligibility: TokenGrantEligibilityValue.ELIGIBLE,
           currentTokenBalance: 9,
           tokenGrantId: null,
           grantedAmount: null,
@@ -482,7 +486,7 @@ describe('TokenEventsService', () => {
           name: 'Ben Lee',
           studentNumber: '20999999',
           email: 'ben.lee@connect.ust.hk',
-          grantEligibility: 'ADJUSTMENT_ONLY',
+          grantEligibility: TokenGrantEligibilityValue.ADJUSTMENT_ONLY,
           currentTokenBalance: 5,
           tokenGrantId,
           grantedAmount: 1,
@@ -541,7 +545,7 @@ describe('TokenEventsService', () => {
       await service.findOne('3f6e9f0a-1234-4c11-9f10-abc123456789', {
         page: 1,
         limit: 20,
-        grantStatus: TokenGrantStatusFilter.ALL,
+        grantStatus: TokenGrantStatusValue.ALL,
       });
 
       throw new Error('Expected findOne to throw a NotFoundException');
@@ -631,7 +635,7 @@ describe('TokenEventsService', () => {
       unchangedCount: 0,
       items: [
         {
-          status: 'CREATED',
+          status: SaveTokenGrantStatusValue.CREATED,
           tokenGrantId,
           tokenLogId,
           userId,
@@ -778,7 +782,7 @@ describe('TokenEventsService', () => {
       unchangedCount: 0,
       items: [
         {
-          status: 'UPDATED',
+          status: SaveTokenGrantStatusValue.UPDATED,
           tokenGrantId,
           tokenLogId,
           userId,
@@ -888,7 +892,7 @@ describe('TokenEventsService', () => {
       unchangedCount: 0,
       items: [
         {
-          status: 'UPDATED',
+          status: SaveTokenGrantStatusValue.UPDATED,
           tokenGrantId,
           tokenLogId: null,
           userId,
@@ -973,13 +977,13 @@ describe('TokenEventsService', () => {
       unchangedCount: 2,
       items: [
         {
-          status: 'UNCHANGED',
+          status: SaveTokenGrantStatusValue.UNCHANGED,
           tokenGrantId,
           tokenLogId: null,
           userId: existingUserId,
         },
         {
-          status: 'UNCHANGED',
+          status: SaveTokenGrantStatusValue.UNCHANGED,
           tokenGrantId: null,
           tokenLogId: null,
           userId: newUserId,

@@ -10,13 +10,21 @@ import {
   WhitelistInvitationStatus,
   Prisma,
 } from '@prisma/client';
+import {
+  INVITATION_LINK_STATUS_VALUE_MAP,
+  WHITELIST_INVITATION_STATUS_PRISMA_MAP,
+  WHITELIST_INVITATION_STATUS_VALUE_MAP,
+} from '../../../common/constants/invitation-api-values';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateWhitelistUserDto } from './dto/create-whitelist-user.dto';
-import { GetWhitelistUsersQueryDto } from './dto/get-whitelist-users-query.dto';
+import {
+  GetWhitelistUsersQueryDto,
+  WhitelistUserSortField,
+} from './dto/get-whitelist-users-query.dto';
 import { isEmail } from 'class-validator';
 import {
   ImportRowResult,
-  ImportRowStatus,
+  ImportRowStatusValue,
   ImportWhitelistUsersDto,
   ImportWhitelistUsersResponse,
   WhitelistImportDuplicatePolicy,
@@ -47,6 +55,23 @@ type ImportAction =
       resultIndex: number;
       whitelistUserId: string;
     };
+
+const WHITELIST_USER_SORT_PRISMA_FIELD_MAP: Record<
+  WhitelistUserSortField,
+  | 'name'
+  | 'studentNumber'
+  | 'email'
+  | 'invitationStatus'
+  | 'invitedAt'
+  | 'createdAt'
+> = {
+  [WhitelistUserSortField.NAME]: 'name',
+  [WhitelistUserSortField.STUDENT_NUMBER]: 'studentNumber',
+  [WhitelistUserSortField.EMAIL]: 'email',
+  [WhitelistUserSortField.INVITATION_STATUS]: 'invitationStatus',
+  [WhitelistUserSortField.INVITED_AT]: 'invitedAt',
+  [WhitelistUserSortField.CREATED_AT]: 'createdAt',
+};
 @Injectable()
 export class WhitelistUsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -55,6 +80,10 @@ export class WhitelistUsersService {
     const { page, limit, keyword, invitationStatus, sort, order } = query;
 
     const skip = (page - 1) * limit;
+
+    const prismaInvitationStatus = invitationStatus
+      ? WHITELIST_INVITATION_STATUS_PRISMA_MAP[invitationStatus]
+      : undefined;
 
     const where: Prisma.WhitelistedUserWhereInput = {
       ...(keyword
@@ -81,15 +110,15 @@ export class WhitelistUsersService {
             ],
           }
         : {}),
-      ...(invitationStatus
+      ...(prismaInvitationStatus
         ? {
-            invitationStatus,
+            invitationStatus: prismaInvitationStatus,
           }
         : {}),
     };
 
     const primaryOrderBy = {
-      [sort]: order,
+      [WHITELIST_USER_SORT_PRISMA_FIELD_MAP[sort]]: order,
     } as Prisma.WhitelistedUserOrderByWithRelationInput;
 
     const [whitelistUsers, totalCount] = await this.prisma.$transaction([
@@ -124,7 +153,8 @@ export class WhitelistUsersService {
         name: whitelistUser.name,
         studentNumber: whitelistUser.studentNumber,
         email: whitelistUser.email,
-        invitationStatus: whitelistUser.invitationStatus,
+        invitationStatus:
+          WHITELIST_INVITATION_STATUS_VALUE_MAP[whitelistUser.invitationStatus],
         invitedAt: whitelistUser.invitedAt,
         createdAt: whitelistUser.createdAt,
       })),
@@ -197,7 +227,8 @@ export class WhitelistUsersService {
       name: whitelistUser.name,
       studentNumber: whitelistUser.studentNumber,
       email: whitelistUser.email,
-      invitationStatus: whitelistUser.invitationStatus,
+      invitationStatus:
+        WHITELIST_INVITATION_STATUS_VALUE_MAP[whitelistUser.invitationStatus],
       userId: whitelistUser.userId,
       invitedBy: whitelistUser.inviter
         ? {
@@ -212,7 +243,8 @@ export class WhitelistUsersService {
       latestInvitation: latestInvitation
         ? {
             invitationId: latestInvitation.id,
-            linkStatus: latestInvitation.linkStatus,
+            linkStatus:
+              INVITATION_LINK_STATUS_VALUE_MAP[latestInvitation.linkStatus],
             sentAt: latestInvitation.sentAt,
             expiresAt: latestInvitation.expiresAt,
             acceptedAt: latestInvitation.acceptedAt,
@@ -313,7 +345,7 @@ export class WhitelistUsersService {
           rowIndex,
           email: validation.email,
           studentNumber: validation.studentNumber,
-          status: 'FAILED',
+          status: ImportRowStatusValue.FAILED,
           whitelistUserId: null,
           errorMessage: validation.errorMessage,
         };
@@ -329,10 +361,10 @@ export class WhitelistUsersService {
         seenEmails.has(row.email) || seenStudentNumbers.has(row.studentNumber);
 
       if (duplicateWithinRequest) {
-        const status: ImportRowStatus =
+        const status: ImportRowStatusValue =
           dto.onDuplicate === WhitelistImportDuplicatePolicy.SKIP
-            ? 'SKIPPED'
-            : 'FAILED';
+            ? ImportRowStatusValue.SKIPPED
+            : ImportRowStatusValue.FAILED;
 
         const result: ImportRowResult = {
           rowIndex,
@@ -499,7 +531,7 @@ export class WhitelistUsersService {
             rowIndex: row.rowIndex,
             email: row.email,
             studentNumber: row.studentNumber,
-            status: 'FAILED',
+            status: ImportRowStatusValue.FAILED,
             whitelistUserId: null,
             errorMessage: 'Email or student number already exists',
           };
@@ -513,7 +545,7 @@ export class WhitelistUsersService {
           rowIndex: row.rowIndex,
           email: row.email,
           studentNumber: row.studentNumber,
-          status: 'CREATED',
+          status: ImportRowStatusValue.CREATED,
           whitelistUserId: null,
           errorMessage: null,
         };
@@ -542,7 +574,7 @@ export class WhitelistUsersService {
             rowIndex: row.rowIndex,
             email: row.email,
             studentNumber: row.studentNumber,
-            status: 'SKIPPED',
+            status: ImportRowStatusValue.SKIPPED,
             whitelistUserId: existingWhitelistId,
             errorMessage: hasExistingUser
               ? 'Email or student number already belongs to an existing user'
@@ -556,7 +588,7 @@ export class WhitelistUsersService {
           rowIndex: row.rowIndex,
           email: row.email,
           studentNumber: row.studentNumber,
-          status: 'CREATED',
+          status: ImportRowStatusValue.CREATED,
           whitelistUserId: null,
           errorMessage: null,
         };
@@ -575,7 +607,7 @@ export class WhitelistUsersService {
           rowIndex: row.rowIndex,
           email: row.email,
           studentNumber: row.studentNumber,
-          status: 'FAILED',
+          status: ImportRowStatusValue.FAILED,
           whitelistUserId: null,
           errorMessage:
             'Email or student number already belongs to an existing user',
@@ -589,7 +621,7 @@ export class WhitelistUsersService {
           rowIndex: row.rowIndex,
           email: row.email,
           studentNumber: row.studentNumber,
-          status: 'FAILED',
+          status: ImportRowStatusValue.FAILED,
           whitelistUserId: null,
           errorMessage:
             'Email and student number match different whitelist users',
@@ -606,7 +638,7 @@ export class WhitelistUsersService {
           rowIndex: row.rowIndex,
           email: row.email,
           studentNumber: row.studentNumber,
-          status: 'CREATED',
+          status: ImportRowStatusValue.CREATED,
           whitelistUserId: null,
           errorMessage: null,
         };
@@ -625,7 +657,7 @@ export class WhitelistUsersService {
           rowIndex: row.rowIndex,
           email: row.email,
           studentNumber: row.studentNumber,
-          status: 'FAILED',
+          status: ImportRowStatusValue.FAILED,
           whitelistUserId: null,
           errorMessage: 'Multiple rows target the same whitelist user',
         };
@@ -641,7 +673,7 @@ export class WhitelistUsersService {
           rowIndex: row.rowIndex,
           email: row.email,
           studentNumber: row.studentNumber,
-          status: 'FAILED',
+          status: ImportRowStatusValue.FAILED,
           whitelistUserId: null,
           errorMessage:
             'This whitelist user cannot be updated in the current status',
@@ -656,7 +688,7 @@ export class WhitelistUsersService {
         rowIndex: row.rowIndex,
         email: row.email,
         studentNumber: row.studentNumber,
-        status: 'UPDATED',
+        status: ImportRowStatusValue.UPDATED,
         whitelistUserId: matchedWhitelist.id,
         errorMessage: null,
       };
@@ -733,7 +765,7 @@ export class WhitelistUsersService {
               action: AdminAction.IMPORT_WHITELIST_USERS,
               targetId: null,
               metadata: {
-                onDuplicate: dto.onDuplicate,
+                onDuplicate: dto.onDuplicate.toUpperCase(),
                 totalCount: summary.totalCount,
                 successCount: summary.successCount,
                 skippedCount: summary.skippedCount,
@@ -890,7 +922,10 @@ export class WhitelistUsersService {
         name: createdWhitelistUser.name,
         studentNumber: createdWhitelistUser.studentNumber,
         email: createdWhitelistUser.email,
-        invitationStatus: createdWhitelistUser.invitationStatus,
+        invitationStatus:
+          WHITELIST_INVITATION_STATUS_VALUE_MAP[
+            createdWhitelistUser.invitationStatus
+          ],
         invitedAt: createdWhitelistUser.invitedAt,
         acceptedAt: createdWhitelistUser.acceptedAt,
         createdAt: createdWhitelistUser.createdAt,
@@ -1043,15 +1078,17 @@ export class WhitelistUsersService {
     results: ImportRowResult[],
   ): ImportWhitelistUsersResponse {
     const successCount = results.filter(
-      (result) => result.status === 'CREATED' || result.status === 'UPDATED',
+      (result) =>
+        result.status === ImportRowStatusValue.CREATED ||
+        result.status === ImportRowStatusValue.UPDATED,
     ).length;
 
     const skippedCount = results.filter(
-      (result) => result.status === 'SKIPPED',
+      (result) => result.status === ImportRowStatusValue.SKIPPED,
     ).length;
 
     const failedCount = results.filter(
-      (result) => result.status === 'FAILED',
+      (result) => result.status === ImportRowStatusValue.FAILED,
     ).length;
 
     return {

@@ -1,7 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TokenTransactionType, UserRole, UserStatus } from '@prisma/client';
+import {
+  UserRoleValue,
+  UserStatusValue,
+} from '../common/constants/user-api-values';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from './users.service';
+import { TokenTransactionTypeValue } from '../common/constants/token-api-values';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -60,9 +65,9 @@ describe('UsersService', () => {
       name: 'Sulynn Kim',
       studentNumber: '20912345',
       email: 'user@connect.ust.hk',
-      role: UserRole.STUDENT,
+      role: UserRoleValue.STUDENT,
       tokenBalance: 9,
-      status: UserStatus.ACTIVE,
+      status: UserStatusValue.ACTIVE,
       agreedPrivacy: true,
       agreedAt: null,
     });
@@ -91,21 +96,15 @@ describe('UsersService', () => {
     const userId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
 
     const eventLogId = '7c1d52b0-1111-4d22-8e20-abc123456789';
-
     const orderLogId = '8d2e63c1-2222-4d22-8e20-def987654321';
-
     const resetLogId = '9e3f74d2-3333-4d22-8e20-abc987654321';
 
     const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
-
     const orderId = '0f4a85e3-4444-4d22-8e20-abc987654321';
-
     const productId = '1a5b96f4-5555-4d22-8e20-def987654321';
 
     const eventCreatedAt = new Date('2026-07-20T07:00:00.000Z');
-
     const orderCreatedAt = new Date('2026-07-22T08:00:00.000Z');
-
     const resetCreatedAt = new Date('2026-08-03T04:00:00.000Z');
 
     userFindFirstMock.mockResolvedValue({
@@ -176,7 +175,7 @@ describe('UsersService', () => {
       items: [
         {
           tokenLogId: resetLogId,
-          transactionType: TokenTransactionType.RESET,
+          transactionType: TokenTransactionTypeValue.RESET,
           delta: -5,
           reason: 'End of Spring 2026 semester',
           balanceBefore: 5,
@@ -187,7 +186,7 @@ describe('UsersService', () => {
         },
         {
           tokenLogId: orderLogId,
-          transactionType: TokenTransactionType.ORDER_PAYMENT,
+          transactionType: TokenTransactionTypeValue.ORDER_PAYMENT,
           delta: -3,
           reason: 'Product order',
           balanceBefore: 8,
@@ -205,7 +204,7 @@ describe('UsersService', () => {
         },
         {
           tokenLogId: eventLogId,
-          transactionType: TokenTransactionType.EVENT_GRANT,
+          transactionType: TokenTransactionTypeValue.EVENT_GRANT,
           delta: 2,
           reason: 'Attendance',
           balanceBefore: 6,
