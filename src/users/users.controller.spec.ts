@@ -57,9 +57,9 @@ describe('UsersController', () => {
       name: 'Sulynn Kim',
       studentNumber: '20912345',
       email: 'user@connect.ust.hk',
-      role: 'STUDENT',
+      role: 'student',
       tokenBalance: 0,
-      status: 'ACTIVE',
+      status: 'active',
       agreedPrivacy: false,
       agreedAt: null,
     };

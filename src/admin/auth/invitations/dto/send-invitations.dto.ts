@@ -11,9 +11,9 @@ import {
   Min,
 } from 'class-validator';
 import {
-  InvitationLinkStatus,
-  WhitelistInvitationStatus,
-} from '@prisma/client';
+  InvitationLinkStatusValue,
+  WhitelistInvitationStatusValue,
+} from '../../../../common/constants/invitation-api-values';
 
 export class SendInvitationsDto {
   @IsArray()
@@ -31,15 +31,18 @@ export class SendInvitationsDto {
   expiresInHours = 72;
 }
 
-export type InvitationSendStatus = 'SENT' | 'SKIPPED' | 'FAILED';
-
+export enum InvitationSendStatusValue {
+  SENT = 'sent',
+  SKIPPED = 'skipped',
+  FAILED = 'failed',
+}
 export interface SendInvitationResult {
   whitelistUserId: string;
   email: string | null;
   invitationId: string | null;
-  sendStatus: InvitationSendStatus;
-  invitationStatus: WhitelistInvitationStatus | null;
-  linkStatus: InvitationLinkStatus | null;
+  sendStatus: InvitationSendStatusValue;
+  invitationStatus: WhitelistInvitationStatusValue | null;
+  linkStatus: InvitationLinkStatusValue | null;
   sentAt: Date | null;
   expiresAt: Date | null;
   errorCode: string | null;
@@ -54,15 +57,18 @@ export interface SendInvitationsResponse {
   results: SendInvitationResult[];
 }
 
-export type InvitationResendStatus = 'RESENT' | 'SKIPPED' | 'FAILED';
-
+export enum InvitationResendStatusValue {
+  RESENT = 'resent',
+  SKIPPED = 'skipped',
+  FAILED = 'failed',
+}
 export interface ResendInvitationResult {
   whitelistUserId: string;
   email: string | null;
   invitationId: string | null;
-  sendStatus: InvitationResendStatus;
-  invitationStatus: WhitelistInvitationStatus | null;
-  linkStatus: InvitationLinkStatus | null;
+  sendStatus: InvitationResendStatusValue;
+  invitationStatus: WhitelistInvitationStatusValue | null;
+  linkStatus: InvitationLinkStatusValue | null;
   sentAt: Date | null;
   expiresAt: Date | null;
   errorCode: string | null;

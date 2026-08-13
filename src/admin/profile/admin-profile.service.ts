@@ -1,6 +1,10 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { UserRole, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  USER_ROLE_VALUE_MAP,
+  USER_STATUS_VALUE_MAP,
+} from '../../common/constants/user-api-values';
 
 @Injectable()
 export class AdminProfileService {
@@ -34,8 +38,8 @@ export class AdminProfileService {
       userId: admin.id,
       name: admin.name,
       email: admin.email,
-      role: admin.role,
-      status: admin.status,
+      role: USER_ROLE_VALUE_MAP[admin.role],
+      status: USER_STATUS_VALUE_MAP[admin.status],
     };
   }
 }

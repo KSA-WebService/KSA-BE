@@ -5,11 +5,13 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { ResultTypeValue } from '../constants/response-api-values';
+import type { Response } from 'express';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
-    const response = host.switchToHttp().getResponse();
+    const response = host.switchToHttp().getResponse<Response>();
 
     const status =
       exception instanceof HttpException
@@ -34,7 +36,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
             : 'Internal server error';
 
     response.status(status).json({
-      resultType: 'FAIL',
+      resultType: ResultTypeValue.FAIL,
       error: {
         errorCode: errorBody.errorCode ?? `HTTP_${status}`,
         reason,

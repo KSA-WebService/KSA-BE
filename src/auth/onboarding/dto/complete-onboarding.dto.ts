@@ -1,5 +1,8 @@
-import { UserRole, UserStatus } from '@prisma/client';
 import { Allow } from 'class-validator';
+import {
+  UserRoleValue,
+  UserStatusValue,
+} from '../../../common/constants/user-api-values';
 
 export class CompleteOnboardingDto {
   @Allow()
@@ -13,12 +16,12 @@ export class CompleteOnboardingDto {
 }
 
 export interface CompleteOnboardingResponse {
-  id: string;
+  userId: string;
   name: string;
   email: string;
   studentNumber: string;
-  role: UserRole;
-  status: UserStatus;
+  role: UserRoleValue;
+  status: UserStatusValue;
   tokenBalance: number;
   createdAt: string;
 }

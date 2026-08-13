@@ -11,6 +11,10 @@ import {
   AdminActionLogType,
   GetAdminActionLogsQueryDto,
 } from './dto/get-admin-action-logs-query.dto';
+import {
+  ADMIN_ACTION_TYPE_VALUE_MAP,
+  ADMIN_ACTION_VALUE_MAP,
+} from '../../common/constants/admin-action-api-values';
 
 const ADMIN_ACTION_TYPE_MAP: Record<AdminActionLogType, AdminActionType> = {
   user: AdminActionType.USER,
@@ -88,8 +92,8 @@ export class ActionLogsService {
             name: log.admin.name,
             email: log.admin.email,
           },
-          actionType: log.actionType.toLowerCase(),
-          action: log.action.toLowerCase(),
+          actionType: ADMIN_ACTION_TYPE_VALUE_MAP[log.actionType],
+          action: ADMIN_ACTION_VALUE_MAP[log.action],
           targetId: log.targetId,
           createdAt: log.createdAt,
         })),
@@ -145,8 +149,8 @@ export class ActionLogsService {
           name: log.admin.name,
           email: log.admin.email,
         },
-        actionType: log.actionType.toLowerCase(),
-        action: log.action.toLowerCase(),
+        actionType: ADMIN_ACTION_TYPE_VALUE_MAP[log.actionType],
+        action: ADMIN_ACTION_VALUE_MAP[log.action],
         targetId: log.targetId,
         createdAt: log.createdAt,
         details: log.metadata,

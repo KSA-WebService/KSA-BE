@@ -21,6 +21,10 @@ import {
 } from './dto/complete-onboarding.dto';
 import { InvitationEligibilityService } from '../invitations/invitation-eligibility.service';
 import { SupabaseAdminService } from '../supabase-admin.service';
+import {
+  USER_ROLE_VALUE_MAP,
+  USER_STATUS_VALUE_MAP,
+} from '../../common/constants/user-api-values';
 
 class ActivationStateChangedError extends Error {
   constructor() {
@@ -181,12 +185,12 @@ export class OnboardingService {
       });
 
       return {
-        id: createdUser.id,
+        userId: createdUser.id,
         name: createdUser.name,
         email: createdUser.email,
         studentNumber: createdUser.studentNumber,
-        role: createdUser.role,
-        status: createdUser.status,
+        role: USER_ROLE_VALUE_MAP[createdUser.role],
+        status: USER_STATUS_VALUE_MAP[createdUser.status],
         tokenBalance: createdUser.tokenBalance,
         createdAt: createdUser.createdAt.toISOString(),
       };
@@ -201,11 +205,7 @@ export class OnboardingService {
        * ACCEPTED / REVOKED / EXPIRED 등의 정확한 오류를 반환한다.
        */
       if (error instanceof ActivationStateChangedError) {
-        try {
-          await this.invitationEligibilityService.validate(dto.token);
-        } catch (eligibilityError: unknown) {
-          throw eligibilityError;
-        }
+        await this.invitationEligibilityService.validate(dto.token);
       }
 
       /*

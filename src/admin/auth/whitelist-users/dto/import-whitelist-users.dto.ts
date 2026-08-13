@@ -8,15 +8,22 @@ import {
 } from 'class-validator';
 
 export enum WhitelistImportDuplicatePolicy {
-  SKIP = 'SKIP',
-  FAIL = 'FAIL',
-  UPDATE = 'UPDATE',
+  SKIP = 'skip',
+  FAIL = 'fail',
+  UPDATE = 'update',
+}
+
+export enum ImportRowStatusValue {
+  CREATED = 'created',
+  UPDATED = 'updated',
+  SKIPPED = 'skipped',
+  FAILED = 'failed',
 }
 
 export class ImportWhitelistUsersDto {
   @IsOptional()
-  @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
   )
   @IsEnum(WhitelistImportDuplicatePolicy)
   onDuplicate: WhitelistImportDuplicatePolicy =
@@ -28,17 +35,11 @@ export class ImportWhitelistUsersDto {
   users!: unknown[];
 }
 
-export type ImportRowStatus =
-  | 'CREATED'
-  | 'UPDATED'
-  | 'SKIPPED'
-  | 'FAILED';
-
 export interface ImportRowResult {
   rowIndex: number;
   email: string;
   studentNumber: string;
-  status: ImportRowStatus;
+  status: ImportRowStatusValue;
   whitelistUserId: string | null;
   errorMessage: string | null;
 }
