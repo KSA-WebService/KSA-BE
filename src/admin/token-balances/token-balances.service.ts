@@ -26,6 +26,7 @@ export class TokenBalancesService {
     const preview = await this.prisma.user.aggregate({
       where: {
         role: UserRole.STUDENT,
+        deletedAt: null,
         tokenBalance: {
           gt: 0,
         },
@@ -76,6 +77,7 @@ export class TokenBalancesService {
       const resetTargets = await tx.user.findMany({
         where: {
           role: UserRole.STUDENT,
+          deletedAt: null,
           tokenBalance: {
             gt: 0,
           },
@@ -109,24 +111,13 @@ export class TokenBalancesService {
         0,
       );
 
-      await tx.tokenLog.createMany({
-        data: resetTargets.map((user) => ({
-          transactionType: TokenTransactionType.RESET,
-          adminId,
-          userId: user.id,
-          balanceBefore: user.tokenBalance,
-          balanceAfter: 0,
-          delta: -user.tokenBalance,
-          reason,
-        })),
-      });
-
       const updateResult = await tx.user.updateMany({
         where: {
           id: {
             in: resetTargets.map((user) => user.id),
           },
           role: UserRole.STUDENT,
+          deletedAt: null,
           tokenBalance: {
             gt: 0,
           },
@@ -142,6 +133,18 @@ export class TokenBalancesService {
           message: 'Token balances changed while the reset was being processed',
         });
       }
+
+      await tx.tokenLog.createMany({
+        data: resetTargets.map((user) => ({
+          transactionType: TokenTransactionType.RESET,
+          adminId,
+          userId: user.id,
+          balanceBefore: user.tokenBalance,
+          balanceAfter: 0,
+          delta: -user.tokenBalance,
+          reason,
+        })),
+      });
 
       const metadata: Prisma.InputJsonObject = {
         affectedMemberCount,
