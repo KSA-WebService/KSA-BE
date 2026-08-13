@@ -593,9 +593,14 @@ export class PostsService {
           where,
           skip: (page - 1) * limit,
           take: limit,
-          orderBy: {
-            createdAt: sort === AdminPostSortValue.OLDEST ? 'asc' : 'desc',
-          },
+          orderBy: [
+            {
+              createdAt: sort === AdminPostSortValue.OLDEST ? 'asc' : 'desc',
+            },
+            {
+              id: 'asc',
+            },
+          ],
           select: POST_LIST_SELECT,
         }),
         this.prisma.contentPost.count({

@@ -1005,9 +1005,14 @@ describe('PostsService', () => {
         },
         skip: 0,
         take: 10,
-        orderBy: {
-          createdAt: 'desc',
-        },
+        orderBy: [
+          {
+            createdAt: 'desc',
+          },
+          {
+            id: 'asc',
+          },
+        ],
       }),
     );
 
@@ -1065,9 +1070,14 @@ describe('PostsService', () => {
         where: expectedWhere,
         skip: 5,
         take: 5,
-        orderBy: {
-          createdAt: 'asc',
-        },
+        orderBy: [
+          {
+            createdAt: 'asc',
+          },
+          {
+            id: 'asc',
+          },
+        ],
       }),
     );
 
