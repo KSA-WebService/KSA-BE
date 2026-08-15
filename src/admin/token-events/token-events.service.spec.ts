@@ -30,7 +30,7 @@ describe('TokenEventsService', () => {
   const userCountMock = jest.fn();
   const tokenGrantAggregateMock = jest.fn();
   const tokenGrantCountMock = jest.fn();
-  const userUpdateMock = jest.fn();
+  const userUpdateManyMock = jest.fn();
   const tokenGrantFindManyMock = jest.fn();
   const tokenGrantUpdateMock = jest.fn();
   const tokenEventUpdateManyMock = jest.fn();
@@ -46,7 +46,7 @@ describe('TokenEventsService', () => {
     user: {
       findMany: userFindManyMock,
       count: userCountMock,
-      update: userUpdateMock,
+      updateMany: userUpdateManyMock,
     },
     adminActionLog: {
       create: adminActionLogCreateMock,
@@ -606,8 +606,8 @@ describe('TokenEventsService', () => {
       id: tokenGrantId,
     });
 
-    userUpdateMock.mockResolvedValue({
-      id: userId,
+    userUpdateManyMock.mockResolvedValue({
+      count: 1,
     });
 
     tokenLogCreateMock.mockResolvedValue({
@@ -664,9 +664,13 @@ describe('TokenEventsService', () => {
       },
     });
 
-    expect(userUpdateMock).toHaveBeenCalledWith({
+    expect(userUpdateManyMock).toHaveBeenCalledWith({
       where: {
         id: userId,
+        tokenBalance: 9,
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
       },
       data: {
         tokenBalance: {
@@ -753,8 +757,8 @@ describe('TokenEventsService', () => {
       id: tokenGrantId,
     });
 
-    userUpdateMock.mockResolvedValue({
-      id: userId,
+    userUpdateManyMock.mockResolvedValue({
+      count: 1,
     });
 
     tokenLogCreateMock.mockResolvedValue({
@@ -808,9 +812,13 @@ describe('TokenEventsService', () => {
       },
     });
 
-    expect(userUpdateMock).toHaveBeenCalledWith({
+    expect(userUpdateManyMock).toHaveBeenCalledWith({
       where: {
         id: userId,
+        tokenBalance: 4,
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
       },
       data: {
         tokenBalance: {
@@ -909,7 +917,7 @@ describe('TokenEventsService', () => {
     });
 
     expect(tokenGrantUpdateMock).toHaveBeenCalledTimes(1);
-    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateManyMock).not.toHaveBeenCalled();
     expect(tokenLogCreateMock).not.toHaveBeenCalled();
     expect(adminActionLogCreateMock).toHaveBeenCalledTimes(1);
   });
@@ -993,7 +1001,7 @@ describe('TokenEventsService', () => {
 
     expect(tokenGrantCreateMock).not.toHaveBeenCalled();
     expect(tokenGrantUpdateMock).not.toHaveBeenCalled();
-    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateManyMock).not.toHaveBeenCalled();
     expect(tokenLogCreateMock).not.toHaveBeenCalled();
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
   });
@@ -1064,7 +1072,7 @@ describe('TokenEventsService', () => {
 
     expect(tokenGrantCreateMock).not.toHaveBeenCalled();
     expect(tokenGrantUpdateMock).not.toHaveBeenCalled();
-    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateManyMock).not.toHaveBeenCalled();
     expect(tokenLogCreateMock).not.toHaveBeenCalled();
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
   });
@@ -1119,7 +1127,7 @@ describe('TokenEventsService', () => {
     });
 
     expect(tokenGrantUpdateMock).not.toHaveBeenCalled();
-    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateManyMock).not.toHaveBeenCalled();
     expect(tokenLogCreateMock).not.toHaveBeenCalled();
   });
 
@@ -1154,7 +1162,7 @@ describe('TokenEventsService', () => {
     });
 
     expect(tokenGrantCreateMock).not.toHaveBeenCalled();
-    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateManyMock).not.toHaveBeenCalled();
   });
 
   it('should retry a P2034 serializable transaction conflict', async () => {
@@ -1291,7 +1299,7 @@ describe('TokenEventsService', () => {
       },
     });
 
-    expect(userUpdateMock).not.toHaveBeenCalled();
+    expect(userUpdateManyMock).not.toHaveBeenCalled();
     expect(tokenGrantUpdateMock).not.toHaveBeenCalled();
     expect(tokenLogCreateMock).not.toHaveBeenCalled();
   });
@@ -1449,5 +1457,175 @@ describe('TokenEventsService', () => {
     expect(tokenEventUpdateManyMock).not.toHaveBeenCalled();
 
     expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject the full grant save when the user balance changes before the final update', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const userId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+    const tokenGrantId = '9f3a2b1c-3333-4d22-8e20-def987654321';
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: userId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 4,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([
+      {
+        id: tokenGrantId,
+        userId,
+        grantedAmount: 2,
+        reason: 'Attendance',
+      },
+    ]);
+
+    tokenGrantUpdateMock.mockResolvedValue({
+      id: tokenGrantId,
+    });
+
+    userUpdateManyMock.mockResolvedValue({
+      count: 0,
+    });
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId,
+            grantedAmount: 5,
+            reason: 'Attendance',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'T409_TOKEN_GRANT_SAVE_CONFLICT',
+        message: 'Token balance or grant eligibility changed during processing',
+      },
+    });
+
+    expect(tokenLogCreateMock).not.toHaveBeenCalled();
+
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should retry a P2002 grant uniqueness conflict', async () => {
+    const tokenEventId = '3f6e9f0a-1234-4c11-9f10-abc123456789';
+    const adminId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
+    const userId = 'a8d91c2e-2222-4a11-9f10-abc123456789';
+
+    const conflictError = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint conflict',
+      {
+        code: 'P2002',
+        clientVersion: 'test',
+      },
+    );
+
+    prismaServiceMock.$transaction.mockRejectedValueOnce(conflictError);
+
+    tokenEventFindFirstMock.mockResolvedValue({
+      id: tokenEventId,
+    });
+
+    userFindManyMock.mockResolvedValue([
+      {
+        id: userId,
+        name: 'Alex Chan',
+        studentNumber: '20967890',
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        tokenBalance: 5,
+      },
+    ]);
+
+    tokenGrantFindManyMock.mockResolvedValue([]);
+
+    await expect(
+      service.saveGrants(tokenEventId, adminId, {
+        grants: [
+          {
+            userId,
+            grantedAmount: 0,
+            reason: 'No grant',
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      tokenEventId,
+      processedCount: 1,
+      savedCount: 0,
+      unchangedCount: 1,
+    });
+
+    expect(prismaServiceMock.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('should return an update-specific conflict after update transaction retries are exhausted', async () => {
+    const conflictError = new Prisma.PrismaClientKnownRequestError(
+      'Transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    prismaServiceMock.$transaction.mockRejectedValue(conflictError);
+
+    await expect(
+      service.updateTokenEvent(
+        '3f6e9f0a-1234-4c11-9f10-abc123456789',
+        {
+          eventName: 'Updated Event',
+        },
+        'b5b922c5-9ca5-4c29-81e6-8faec8fbda53',
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'T409_TOKEN_EVENT_UPDATE_CONFLICT',
+      },
+    });
+
+    expect(prismaServiceMock.$transaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('should return a delete-specific conflict after delete transaction retries are exhausted', async () => {
+    const conflictError = new Prisma.PrismaClientKnownRequestError(
+      'Transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    prismaServiceMock.$transaction.mockRejectedValue(conflictError);
+
+    await expect(
+      service.deleteTokenEvent(
+        '3f6e9f0a-1234-4c11-9f10-abc123456789',
+        'b5b922c5-9ca5-4c29-81e6-8faec8fbda53',
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'T409_TOKEN_EVENT_DELETE_CONFLICT',
+      },
+    });
+
+    expect(prismaServiceMock.$transaction).toHaveBeenCalledTimes(3);
   });
 });

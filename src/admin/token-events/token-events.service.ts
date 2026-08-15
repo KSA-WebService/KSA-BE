@@ -25,6 +25,12 @@ import {
 
 type SaveTokenGrantStatus = 'CREATED' | 'UPDATED' | 'UNCHANGED';
 
+type SerializableConflictOptions = {
+  errorCode: string;
+  message: string;
+  retryOnUniqueConflict?: boolean;
+};
+
 const MAX_SERIALIZABLE_TRANSACTION_RETRIES = 3;
 
 @Injectable()
@@ -449,73 +455,79 @@ export class TokenEventsService {
     dto: UpdateTokenEventDto,
     adminId: string,
   ) {
-    return this.runSerializableTransaction(async (tx) => {
-      const tokenEvent = await tx.tokenEvent.findFirst({
-        where: {
-          id: tokenEventId,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-          eventName: true,
-          updatedAt: true,
-        },
-      });
-
-      if (!tokenEvent) {
-        throw new NotFoundException({
-          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
-          message: 'Token event not found',
+    return this.runSerializableTransaction(
+      async (tx) => {
+        const tokenEvent = await tx.tokenEvent.findFirst({
+          where: {
+            id: tokenEventId,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            eventName: true,
+            updatedAt: true,
+          },
         });
-      }
 
-      if (tokenEvent.eventName === dto.eventName) {
+        if (!tokenEvent) {
+          throw new NotFoundException({
+            errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+            message: 'Token event not found',
+          });
+        }
+
+        if (tokenEvent.eventName === dto.eventName) {
+          return {
+            tokenEventId: tokenEvent.id,
+            eventName: tokenEvent.eventName,
+            updatedAt: tokenEvent.updatedAt,
+          };
+        }
+
+        const updatedAt = new Date();
+
+        const updateResult = await tx.tokenEvent.updateMany({
+          where: {
+            id: tokenEventId,
+            deletedAt: null,
+          },
+          data: {
+            eventName: dto.eventName,
+            updatedAt,
+          },
+        });
+
+        if (updateResult.count !== 1) {
+          throw new NotFoundException({
+            errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+            message: 'Token event not found',
+          });
+        }
+
+        await tx.adminActionLog.create({
+          data: {
+            adminId,
+            actionType: AdminActionType.TOKEN,
+            action: AdminAction.UPDATE_TOKEN_EVENT,
+            targetId: tokenEventId,
+            metadata: {
+              previousEventName: tokenEvent.eventName,
+              updatedEventName: dto.eventName,
+            },
+          },
+        });
+
         return {
-          tokenEventId: tokenEvent.id,
-          eventName: tokenEvent.eventName,
-          updatedAt: tokenEvent.updatedAt,
-        };
-      }
-
-      const updatedAt = new Date();
-
-      const updateResult = await tx.tokenEvent.updateMany({
-        where: {
-          id: tokenEventId,
-          deletedAt: null,
-        },
-        data: {
+          tokenEventId,
           eventName: dto.eventName,
           updatedAt,
-        },
-      });
-
-      if (updateResult.count !== 1) {
-        throw new NotFoundException({
-          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
-          message: 'Token event not found',
-        });
-      }
-
-      await tx.adminActionLog.create({
-        data: {
-          adminId,
-          actionType: AdminActionType.TOKEN,
-          action: AdminAction.UPDATE_TOKEN_EVENT,
-          targetId: tokenEventId,
-          metadata: {
-            previousEventName: tokenEvent.eventName,
-            updatedEventName: dto.eventName,
-          },
-        },
-      });
-
-      return {
-        tokenEventId,
-        eventName: dto.eventName,
-        updatedAt,
-      };
-    });
+        };
+      },
+      {
+        errorCode: 'T409_TOKEN_EVENT_UPDATE_CONFLICT',
+        message: 'Token event could not be updated due to a concurrent update',
+      },
+    );
   }
 
   async saveGrants(
@@ -523,379 +535,409 @@ export class TokenEventsService {
     adminId: string,
     dto: SaveTokenGrantsDto,
   ) {
-    return this.runSerializableTransaction(async (tx) => {
-      const tokenEvent = await tx.tokenEvent.findFirst({
-        where: {
-          id: tokenEventId,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      if (!tokenEvent) {
-        throw new NotFoundException({
-          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
-          message: 'Token event not found',
-        });
-      }
-
-      const userIds = dto.grants.map((grant) => grant.userId);
-
-      const [users, existingGrants] = await Promise.all([
-        tx.user.findMany({
+    return this.runSerializableTransaction(
+      async (tx) => {
+        const tokenEvent = await tx.tokenEvent.findFirst({
           where: {
-            id: {
-              in: userIds,
-            },
+            id: tokenEventId,
+            deletedAt: null,
           },
           select: {
             id: true,
-            name: true,
-            studentNumber: true,
-            role: true,
-            status: true,
-            deletedAt: true,
-            tokenBalance: true,
           },
-        }),
-        tx.tokenGrant.findMany({
-          where: {
-            tokenEventId,
-            userId: {
-              in: userIds,
-            },
-          },
-          select: {
-            id: true,
-            userId: true,
-            grantedAmount: true,
-            reason: true,
-          },
-        }),
-      ]);
-
-      const userMap = new Map(users.map((user) => [user.id, user]));
-
-      const existingGrantMap = new Map(
-        existingGrants.map((grant) => [grant.userId, grant]),
-      );
-
-      const missingUserId = userIds.find((userId) => !userMap.has(userId));
-
-      if (missingUserId) {
-        throw new NotFoundException({
-          errorCode: 'U404_USER_NOT_FOUND',
-          message: 'Target user not found',
         });
-      }
 
-      /*
-       * 모든 회원에 대한 정책 검증을 먼저 완료한다.
-       * 한 명이라도 실패하면 쓰기 작업을 시작하지 않는다.
-       */
-      const plans = dto.grants.map((requestedGrant) => {
-        const user = userMap.get(requestedGrant.userId);
+        if (!tokenEvent) {
+          throw new NotFoundException({
+            errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+            message: 'Token event not found',
+          });
+        }
 
-        if (!user) {
+        const userIds = dto.grants.map((grant) => grant.userId);
+
+        const [users, existingGrants] = await Promise.all([
+          tx.user.findMany({
+            where: {
+              id: {
+                in: userIds,
+              },
+            },
+            select: {
+              id: true,
+              name: true,
+              studentNumber: true,
+              role: true,
+              status: true,
+              deletedAt: true,
+              tokenBalance: true,
+            },
+          }),
+          tx.tokenGrant.findMany({
+            where: {
+              tokenEventId,
+              userId: {
+                in: userIds,
+              },
+            },
+            select: {
+              id: true,
+              userId: true,
+              grantedAmount: true,
+              reason: true,
+            },
+          }),
+        ]);
+
+        const userMap = new Map(users.map((user) => [user.id, user]));
+
+        const existingGrantMap = new Map(
+          existingGrants.map((grant) => [grant.userId, grant]),
+        );
+
+        const missingUserId = userIds.find((userId) => !userMap.has(userId));
+
+        if (missingUserId) {
           throw new NotFoundException({
             errorCode: 'U404_USER_NOT_FOUND',
             message: 'Target user not found',
           });
         }
 
-        const existingGrant = existingGrantMap.get(requestedGrant.userId);
+        /*
+         * 모든 회원에 대한 정책 검증을 먼저 완료한다.
+         * 한 명이라도 실패하면 쓰기 작업을 시작하지 않는다.
+         */
+        const plans = dto.grants.map((requestedGrant) => {
+          const user = userMap.get(requestedGrant.userId);
 
-        const previousGrantedAmount = existingGrant?.grantedAmount ?? 0;
+          if (!user) {
+            throw new NotFoundException({
+              errorCode: 'U404_USER_NOT_FOUND',
+              message: 'Target user not found',
+            });
+          }
 
-        const deltaAmount =
-          requestedGrant.grantedAmount - previousGrantedAmount;
+          const existingGrant = existingGrantMap.get(requestedGrant.userId);
 
-        const reasonChanged =
-          existingGrant !== undefined &&
-          existingGrant.reason !== requestedGrant.reason;
+          const previousGrantedAmount = existingGrant?.grantedAmount ?? 0;
 
-        const isEligibleForIncrease =
-          user.role === UserRole.STUDENT &&
-          user.status === UserStatus.ACTIVE &&
-          user.deletedAt === null;
+          const deltaAmount =
+            requestedGrant.grantedAmount - previousGrantedAmount;
 
-        if (deltaAmount > 0 && !isEligibleForIncrease) {
-          throw new ConflictException({
-            errorCode: 'T409_TOKEN_GRANT_TARGET_INELIGIBLE',
-            message:
-              'Target user is not eligible for a new or increased token grant',
+          const reasonChanged =
+            existingGrant !== undefined &&
+            existingGrant.reason !== requestedGrant.reason;
+
+          const isEligibleForIncrease =
+            user.role === UserRole.STUDENT &&
+            user.status === UserStatus.ACTIVE &&
+            user.deletedAt === null;
+
+          if (deltaAmount > 0 && !isEligibleForIncrease) {
+            throw new ConflictException({
+              errorCode: 'T409_TOKEN_GRANT_TARGET_INELIGIBLE',
+              message:
+                'Target user is not eligible for a new or increased token grant',
+            });
+          }
+
+          const balanceAfter = user.tokenBalance + deltaAmount;
+
+          if (deltaAmount < 0 && balanceAfter < 0) {
+            throw new ConflictException({
+              errorCode: 'T409_INSUFFICIENT_TOKEN_BALANCE',
+              message:
+                'The token grant cannot be reduced because the user has insufficient balance',
+            });
+          }
+
+          let status: SaveTokenGrantStatus;
+
+          if (!existingGrant) {
+            status = requestedGrant.grantedAmount > 0 ? 'CREATED' : 'UNCHANGED';
+          } else if (deltaAmount !== 0 || reasonChanged) {
+            status = 'UPDATED';
+          } else {
+            status = 'UNCHANGED';
+          }
+
+          return {
+            requestedGrant,
+            user,
+            existingGrant,
+            previousGrantedAmount,
+            deltaAmount,
+            balanceBefore: user.tokenBalance,
+            balanceAfter,
+            reasonChanged,
+            status,
+          };
+        });
+
+        const items: Array<{
+          status: SaveTokenGrantStatusValue;
+          tokenGrantId: string | null;
+          tokenLogId: string | null;
+          userId: string;
+          name: string;
+          studentNumber: string;
+          previousGrantedAmount: number;
+          grantedAmount: number;
+          deltaAmount: number;
+          reason: string;
+          balanceBefore: number;
+          balanceAfter: number;
+        }> = [];
+
+        for (const plan of plans) {
+          let tokenGrantId = plan.existingGrant?.id ?? null;
+
+          let tokenLogId: string | null = null;
+
+          if (plan.status === 'CREATED') {
+            const createdGrant = await tx.tokenGrant.create({
+              data: {
+                tokenEventId,
+                userId: plan.user.id,
+                grantedBy: adminId,
+                grantedAmount: plan.requestedGrant.grantedAmount,
+                reason: plan.requestedGrant.reason,
+              },
+              select: {
+                id: true,
+              },
+            });
+
+            tokenGrantId = createdGrant.id;
+          } else if (plan.status === 'UPDATED') {
+            if (!plan.existingGrant) {
+              throw new ConflictException({
+                errorCode: 'T409_TOKEN_GRANT_STATE_CONFLICT',
+                message: 'Token grant state changed during processing',
+              });
+            }
+
+            await tx.tokenGrant.update({
+              where: {
+                id: plan.existingGrant.id,
+              },
+              data: {
+                grantedAmount: plan.requestedGrant.grantedAmount,
+                reason: plan.requestedGrant.reason,
+              },
+            });
+          }
+
+          if (plan.deltaAmount !== 0) {
+            const balanceUpdateResult = await tx.user.updateMany({
+              where: {
+                id: plan.user.id,
+                tokenBalance: plan.balanceBefore,
+                ...(plan.deltaAmount > 0
+                  ? {
+                      role: UserRole.STUDENT,
+                      status: UserStatus.ACTIVE,
+                      deletedAt: null,
+                    }
+                  : {}),
+              },
+              data: {
+                tokenBalance: {
+                  increment: plan.deltaAmount,
+                },
+              },
+            });
+
+            if (balanceUpdateResult.count !== 1) {
+              throw new ConflictException({
+                errorCode: 'T409_TOKEN_GRANT_SAVE_CONFLICT',
+                message:
+                  'Token balance or grant eligibility changed during processing',
+              });
+            }
+
+            if (!tokenGrantId) {
+              throw new ConflictException({
+                errorCode: 'T409_TOKEN_GRANT_STATE_CONFLICT',
+                message: 'Token grant state changed during processing',
+              });
+            }
+
+            const createdTokenLog = await tx.tokenLog.create({
+              data: {
+                transactionType:
+                  plan.status === 'CREATED'
+                    ? TokenTransactionType.EVENT_GRANT
+                    : TokenTransactionType.EVENT_ADJUSTMENT,
+                adminId,
+                userId: plan.user.id,
+                tokenGrantId,
+                balanceBefore: plan.balanceBefore,
+                balanceAfter: plan.balanceAfter,
+                delta: plan.deltaAmount,
+                reason: plan.requestedGrant.reason,
+              },
+              select: {
+                id: true,
+              },
+            });
+
+            tokenLogId = createdTokenLog.id;
+          }
+
+          items.push({
+            status:
+              plan.status === 'CREATED'
+                ? SaveTokenGrantStatusValue.CREATED
+                : plan.status === 'UPDATED'
+                  ? SaveTokenGrantStatusValue.UPDATED
+                  : SaveTokenGrantStatusValue.UNCHANGED,
+            tokenGrantId,
+            tokenLogId,
+            userId: plan.user.id,
+            name: plan.user.name,
+            studentNumber: plan.user.studentNumber,
+            previousGrantedAmount: plan.previousGrantedAmount,
+            grantedAmount: plan.requestedGrant.grantedAmount,
+            deltaAmount: plan.deltaAmount,
+            reason: plan.requestedGrant.reason,
+            balanceBefore: plan.balanceBefore,
+            balanceAfter: plan.balanceAfter,
           });
         }
 
-        const balanceAfter = user.tokenBalance + deltaAmount;
+        const savedCount = items.filter(
+          (item) => item.status !== SaveTokenGrantStatusValue.UNCHANGED,
+        ).length;
 
-        if (deltaAmount < 0 && balanceAfter < 0) {
-          throw new ConflictException({
-            errorCode: 'T409_INSUFFICIENT_TOKEN_BALANCE',
-            message:
-              'The token grant cannot be reduced because the user has insufficient balance',
+        const unchangedCount = items.length - savedCount;
+
+        if (savedCount > 0) {
+          const metadata = {
+            tokenEventId,
+            processedCount: items.length,
+            savedCount,
+            unchangedCount,
+            changes: plans
+              .filter((plan) => plan.status !== 'UNCHANGED')
+              .map((plan) => ({
+                userId: plan.user.id,
+                status: plan.status,
+                previousGrantedAmount: plan.previousGrantedAmount,
+                grantedAmount: plan.requestedGrant.grantedAmount,
+                deltaAmount: plan.deltaAmount,
+                reasonChanged: plan.reasonChanged,
+              })),
+          } as Prisma.InputJsonValue;
+
+          await tx.adminActionLog.create({
+            data: {
+              adminId,
+              actionType: AdminActionType.TOKEN,
+              targetId: tokenEventId,
+              action: AdminAction.SAVE_TOKEN_GRANTS,
+              metadata,
+            },
           });
-        }
-
-        let status: SaveTokenGrantStatus;
-
-        if (!existingGrant) {
-          status = requestedGrant.grantedAmount > 0 ? 'CREATED' : 'UNCHANGED';
-        } else if (deltaAmount !== 0 || reasonChanged) {
-          status = 'UPDATED';
-        } else {
-          status = 'UNCHANGED';
         }
 
         return {
-          requestedGrant,
-          user,
-          existingGrant,
-          previousGrantedAmount,
-          deltaAmount,
-          balanceBefore: user.tokenBalance,
-          balanceAfter,
-          reasonChanged,
-          status,
-        };
-      });
-
-      const items: Array<{
-        status: SaveTokenGrantStatusValue;
-        tokenGrantId: string | null;
-        tokenLogId: string | null;
-        userId: string;
-        name: string;
-        studentNumber: string;
-        previousGrantedAmount: number;
-        grantedAmount: number;
-        deltaAmount: number;
-        reason: string;
-        balanceBefore: number;
-        balanceAfter: number;
-      }> = [];
-
-      for (const plan of plans) {
-        let tokenGrantId = plan.existingGrant?.id ?? null;
-
-        let tokenLogId: string | null = null;
-
-        if (plan.status === 'CREATED') {
-          const createdGrant = await tx.tokenGrant.create({
-            data: {
-              tokenEventId,
-              userId: plan.user.id,
-              grantedBy: adminId,
-              grantedAmount: plan.requestedGrant.grantedAmount,
-              reason: plan.requestedGrant.reason,
-            },
-            select: {
-              id: true,
-            },
-          });
-
-          tokenGrantId = createdGrant.id;
-        } else if (plan.status === 'UPDATED') {
-          if (!plan.existingGrant) {
-            throw new ConflictException({
-              errorCode: 'T409_TOKEN_GRANT_STATE_CONFLICT',
-              message: 'Token grant state changed during processing',
-            });
-          }
-
-          await tx.tokenGrant.update({
-            where: {
-              id: plan.existingGrant.id,
-            },
-            data: {
-              grantedAmount: plan.requestedGrant.grantedAmount,
-              reason: plan.requestedGrant.reason,
-            },
-          });
-        }
-
-        if (plan.deltaAmount !== 0) {
-          await tx.user.update({
-            where: {
-              id: plan.user.id,
-            },
-            data: {
-              tokenBalance: {
-                increment: plan.deltaAmount,
-              },
-            },
-          });
-
-          if (!tokenGrantId) {
-            throw new ConflictException({
-              errorCode: 'T409_TOKEN_GRANT_STATE_CONFLICT',
-              message: 'Token grant state changed during processing',
-            });
-          }
-
-          const createdTokenLog = await tx.tokenLog.create({
-            data: {
-              transactionType:
-                plan.status === 'CREATED'
-                  ? TokenTransactionType.EVENT_GRANT
-                  : TokenTransactionType.EVENT_ADJUSTMENT,
-              adminId,
-              userId: plan.user.id,
-              tokenGrantId,
-              balanceBefore: plan.balanceBefore,
-              balanceAfter: plan.balanceAfter,
-              delta: plan.deltaAmount,
-              reason: plan.requestedGrant.reason,
-            },
-            select: {
-              id: true,
-            },
-          });
-
-          tokenLogId = createdTokenLog.id;
-        }
-
-        items.push({
-          status:
-            plan.status === 'CREATED'
-              ? SaveTokenGrantStatusValue.CREATED
-              : plan.status === 'UPDATED'
-                ? SaveTokenGrantStatusValue.UPDATED
-                : SaveTokenGrantStatusValue.UNCHANGED,
-          tokenGrantId,
-          tokenLogId,
-          userId: plan.user.id,
-          name: plan.user.name,
-          studentNumber: plan.user.studentNumber,
-          previousGrantedAmount: plan.previousGrantedAmount,
-          grantedAmount: plan.requestedGrant.grantedAmount,
-          deltaAmount: plan.deltaAmount,
-          reason: plan.requestedGrant.reason,
-          balanceBefore: plan.balanceBefore,
-          balanceAfter: plan.balanceAfter,
-        });
-      }
-
-      const savedCount = items.filter(
-        (item) => item.status !== SaveTokenGrantStatusValue.UNCHANGED,
-      ).length;
-
-      const unchangedCount = items.length - savedCount;
-
-      if (savedCount > 0) {
-        const metadata = {
           tokenEventId,
           processedCount: items.length,
           savedCount,
           unchangedCount,
-          changes: plans
-            .filter((plan) => plan.status !== 'UNCHANGED')
-            .map((plan) => ({
-              userId: plan.user.id,
-              status: plan.status,
-              previousGrantedAmount: plan.previousGrantedAmount,
-              grantedAmount: plan.requestedGrant.grantedAmount,
-              deltaAmount: plan.deltaAmount,
-              reasonChanged: plan.reasonChanged,
-            })),
-        } as Prisma.InputJsonValue;
+          items,
+        };
+      },
+      {
+        errorCode: 'T409_TOKEN_GRANT_SAVE_CONFLICT',
+        message: 'Token grants could not be saved due to a concurrent update',
+        retryOnUniqueConflict: true,
+      },
+    );
+  }
+
+  async deleteTokenEvent(tokenEventId: string, adminId: string) {
+    return this.runSerializableTransaction(
+      async (tx) => {
+        const tokenEvent = await tx.tokenEvent.findFirst({
+          where: {
+            id: tokenEventId,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            eventName: true,
+          },
+        });
+
+        if (!tokenEvent) {
+          throw new NotFoundException({
+            errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+            message: 'Token event not found',
+          });
+        }
+
+        const grantedMemberCount = await tx.tokenGrant.count({
+          where: {
+            tokenEventId,
+            grantedAmount: {
+              gt: 0,
+            },
+          },
+        });
+
+        const deletedAt = new Date();
+
+        const updateResult = await tx.tokenEvent.updateMany({
+          where: {
+            id: tokenEventId,
+            deletedAt: null,
+          },
+          data: {
+            deletedAt,
+          },
+        });
+
+        if (updateResult.count !== 1) {
+          throw new NotFoundException({
+            errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
+            message: 'Token event not found',
+          });
+        }
+
+        const metadata: Prisma.InputJsonObject = {
+          eventName: tokenEvent.eventName,
+          grantedMemberCount,
+          deletedAt: deletedAt.toISOString(),
+        };
 
         await tx.adminActionLog.create({
           data: {
             adminId,
             actionType: AdminActionType.TOKEN,
+            action: AdminAction.DELETE_TOKEN_EVENT,
             targetId: tokenEventId,
-            action: AdminAction.SAVE_TOKEN_GRANTS,
             metadata,
           },
         });
-      }
 
-      return {
-        tokenEventId,
-        processedCount: items.length,
-        savedCount,
-        unchangedCount,
-        items,
-      };
-    });
-  }
-
-  async deleteTokenEvent(tokenEventId: string, adminId: string) {
-    return this.runSerializableTransaction(async (tx) => {
-      const tokenEvent = await tx.tokenEvent.findFirst({
-        where: {
-          id: tokenEventId,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-          eventName: true,
-        },
-      });
-
-      if (!tokenEvent) {
-        throw new NotFoundException({
-          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
-          message: 'Token event not found',
-        });
-      }
-
-      const grantedMemberCount = await tx.tokenGrant.count({
-        where: {
-          tokenEventId,
-          grantedAmount: {
-            gt: 0,
-          },
-        },
-      });
-
-      const deletedAt = new Date();
-
-      const updateResult = await tx.tokenEvent.updateMany({
-        where: {
-          id: tokenEventId,
-          deletedAt: null,
-        },
-        data: {
+        return {
+          deletedTokenEventId: tokenEvent.id,
           deletedAt,
-        },
-      });
-
-      if (updateResult.count !== 1) {
-        throw new NotFoundException({
-          errorCode: 'T404_TOKEN_EVENT_NOT_FOUND',
-          message: 'Token event not found',
-        });
-      }
-
-      const metadata: Prisma.InputJsonObject = {
-        eventName: tokenEvent.eventName,
-        grantedMemberCount,
-        deletedAt: deletedAt.toISOString(),
-      };
-
-      await tx.adminActionLog.create({
-        data: {
-          adminId,
-          actionType: AdminActionType.TOKEN,
-          action: AdminAction.DELETE_TOKEN_EVENT,
-          targetId: tokenEventId,
-          metadata,
-        },
-      });
-
-      return {
-        deletedTokenEventId: tokenEvent.id,
-        deletedAt,
-      };
-    });
+        };
+      },
+      {
+        errorCode: 'T409_TOKEN_EVENT_DELETE_CONFLICT',
+        message: 'Token event could not be deleted due to a concurrent update',
+      },
+    );
   }
 
   private async runSerializableTransaction<T>(
     operation: (tx: Prisma.TransactionClient) => Promise<T>,
+    conflictOptions: SerializableConflictOptions,
   ): Promise<T> {
     for (
       let attempt = 1;
@@ -907,27 +949,28 @@ export class TokenEventsService {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
       } catch (error: unknown) {
-        const isTransactionConflict =
+        const isRetryableConflict =
           error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034';
+          (error.code === 'P2034' ||
+            (conflictOptions.retryOnUniqueConflict === true &&
+              error.code === 'P2002'));
 
-        if (!isTransactionConflict) {
+        if (!isRetryableConflict) {
           throw error;
         }
 
         if (attempt === MAX_SERIALIZABLE_TRANSACTION_RETRIES) {
           throw new ConflictException({
-            errorCode: 'T409_TOKEN_GRANT_SAVE_CONFLICT',
-            message:
-              'Token grants could not be saved due to a concurrent update',
+            errorCode: conflictOptions.errorCode,
+            message: conflictOptions.message,
           });
         }
       }
     }
 
     throw new ConflictException({
-      errorCode: 'T409_TOKEN_GRANT_SAVE_CONFLICT',
-      message: 'Token grants could not be saved due to a concurrent update',
+      errorCode: conflictOptions.errorCode,
+      message: conflictOptions.message,
     });
   }
 }
