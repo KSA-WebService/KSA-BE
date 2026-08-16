@@ -322,7 +322,7 @@ describe('UsersService', () => {
     });
   });
 
-  it('should return A403 when an active user profile is unavailable', async () => {
+  it('should return A403_ACTIVE_USER_REQUIRED when an active user profile is unavailable', async () => {
     const userId = 'b5b922c5-9ca5-4c29-81e6-8faec8fbda53';
 
     userFindFirstMock.mockResolvedValue(null);
@@ -330,7 +330,7 @@ describe('UsersService', () => {
     await expect(service.findMe(userId)).rejects.toMatchObject({
       status: 403,
       response: {
-        errorCode: 'A403',
+        errorCode: 'A403_ACTIVE_USER_REQUIRED',
         message: 'Active user access is required',
       },
     });
@@ -349,7 +349,7 @@ describe('UsersService', () => {
     ).rejects.toMatchObject({
       status: 403,
       response: {
-        errorCode: 'A403',
+        errorCode: 'A403_ACTIVE_USER_REQUIRED',
         message: 'Active user access is required',
       },
     });

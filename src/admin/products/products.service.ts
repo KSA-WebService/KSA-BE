@@ -134,12 +134,12 @@ export class ProductsService {
           const imageFile = await tx.file.findFirst({
             where: {
               id: dto.imageFileId,
-              deletedAt: null,
             },
             select: {
               id: true,
               status: true,
               purpose: true,
+              deletedAt: true,
             },
           });
 
@@ -147,20 +147,35 @@ export class ProductsService {
             throw new NotFoundException({
               errorCode: 'F404_FILE_NOT_FOUND',
               message: 'File not found',
+              data: {
+                fileId: dto.imageFileId,
+              },
             });
           }
 
           if (
             imageFile.status !== FileStatus.COMPLETED ||
-            imageFile.purpose !== FilePurpose.PRODUCT_IMAGE
+            imageFile.deletedAt !== null
           ) {
-            throw new BadRequestException({
-              errorCode: 'P400_PRODUCT_IMAGE_INVALID',
-              message: 'The file cannot be used as a product image',
+            throw new ConflictException({
+              errorCode: 'F409_FILE_NOT_AVAILABLE',
+              message: 'File is not available',
+              data: {
+                fileId: dto.imageFileId,
+              },
+            });
+          }
+
+          if (imageFile.purpose !== FilePurpose.PRODUCT_IMAGE) {
+            throw new ConflictException({
+              errorCode: 'F409_FILE_PURPOSE_MISMATCH',
+              message: 'File purpose does not match',
+              data: {
+                fileId: dto.imageFileId,
+              },
             });
           }
         }
-
         const product = await tx.product.create({
           data: {
             name: dto.productName,
@@ -671,12 +686,12 @@ export class ProductsService {
           const imageFile = await tx.file.findFirst({
             where: {
               id: finalImageFileId,
-              deletedAt: null,
             },
             select: {
               id: true,
               status: true,
               purpose: true,
+              deletedAt: true,
             },
           });
 
@@ -684,16 +699,32 @@ export class ProductsService {
             throw new NotFoundException({
               errorCode: 'F404_FILE_NOT_FOUND',
               message: 'File not found',
+              data: {
+                fileId: finalImageFileId,
+              },
             });
           }
 
           if (
             imageFile.status !== FileStatus.COMPLETED ||
-            imageFile.purpose !== FilePurpose.PRODUCT_IMAGE
+            imageFile.deletedAt !== null
           ) {
-            throw new BadRequestException({
-              errorCode: 'P400_PRODUCT_IMAGE_INVALID',
-              message: 'The file cannot be used as a product image',
+            throw new ConflictException({
+              errorCode: 'F409_FILE_NOT_AVAILABLE',
+              message: 'File is not available',
+              data: {
+                fileId: finalImageFileId,
+              },
+            });
+          }
+
+          if (imageFile.purpose !== FilePurpose.PRODUCT_IMAGE) {
+            throw new ConflictException({
+              errorCode: 'F409_FILE_PURPOSE_MISMATCH',
+              message: 'File purpose does not match',
+              data: {
+                fileId: finalImageFileId,
+              },
             });
           }
         }

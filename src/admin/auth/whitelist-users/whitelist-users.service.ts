@@ -230,7 +230,7 @@ export class WhitelistUsersService {
 
     if (!whitelistUser) {
       throw new NotFoundException({
-        errorCode: 'W404',
+        errorCode: 'W404_WHITELIST_USER_NOT_FOUND',
         message: 'Whitelist user not found',
         data: {
           whitelistUserId,
@@ -290,7 +290,7 @@ export class WhitelistUsersService {
 
       if (!whitelistUser) {
         throw new NotFoundException({
-          errorCode: 'W404',
+          errorCode: 'W404_WHITELIST_USER_NOT_FOUND',
           message: 'Whitelist user not found',
           data: {
             whitelistUserId,
@@ -1065,7 +1065,7 @@ export class WhitelistUsersService {
 
             if (restoreResult.count !== 1) {
               throw new ConflictException({
-                errorCode: 'W409',
+                errorCode: 'W409_RESTORE_CONFLICT',
                 message: 'The deleted whitelist user could not be restored',
                 data: {
                   email,
@@ -1153,7 +1153,7 @@ export class WhitelistUsersService {
         error.code === 'P2002'
       ) {
         throw new ConflictException({
-          errorCode: 'W409',
+          errorCode: 'W409_DUPLICATE',
           message:
             'The email or student number is already registered in the whitelist',
         });

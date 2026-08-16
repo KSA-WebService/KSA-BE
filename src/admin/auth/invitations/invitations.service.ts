@@ -76,7 +76,7 @@ export class InvitationsService {
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
-          errorCode: 'I404_WHITELIST_USER',
+          errorCode: 'I404_WHITELIST_USER_NOT_FOUND',
           errorMessage: 'Whitelist user not found',
         });
 
@@ -124,7 +124,7 @@ export class InvitationsService {
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
-          errorCode: 'I409_INVITATION_ACCEPTED',
+          errorCode: 'I409_INVITATION_ALREADY_ACCEPTED',
           errorMessage: 'The invitation has already been accepted',
         });
 
@@ -466,7 +466,7 @@ export class InvitationsService {
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
-          errorCode: 'I404_WHITELIST_USER',
+          errorCode: 'I404_WHITELIST_USER_NOT_FOUND',
           errorMessage: 'Whitelist user not found',
         });
 
@@ -514,7 +514,7 @@ export class InvitationsService {
           linkStatus: null,
           sentAt: null,
           expiresAt: null,
-          errorCode: 'I409_INVITATION_ACCEPTED',
+          errorCode: 'I409_INVITATION_ALREADY_ACCEPTED',
           errorMessage: 'The invitation has already been accepted',
         });
 

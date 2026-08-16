@@ -250,6 +250,7 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     productCreateMock.mockResolvedValue({
@@ -296,12 +297,12 @@ describe('ProductsService', () => {
     expect(fileFindFirstMock).toHaveBeenCalledWith({
       where: {
         id: fileId,
-        deletedAt: null,
       },
       select: {
         id: true,
         status: true,
         purpose: true,
+        deletedAt: true,
       },
     });
 
@@ -418,13 +419,48 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.PENDING,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     await expect(service.createProduct(dto, adminId)).rejects.toMatchObject({
-      status: 400,
+      status: 409,
       response: {
-        errorCode: 'P400_PRODUCT_IMAGE_INVALID',
-        message: 'The file cannot be used as a product image',
+        errorCode: 'F409_FILE_NOT_AVAILABLE',
+        message: 'File is not available',
+        data: {
+          fileId,
+        },
+      },
+    });
+
+    expect(productCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a deleted product image as unavailable', async () => {
+    const dto: CreateProductDto = {
+      productName: 'Draft Product',
+      productType: CreateProductTypeValue.MERCHANDISE,
+      tokenPrice: 50,
+      stockQuantity: 10,
+      imageFileId: fileId,
+      publicationStatus: CreateProductPublicationStatusValue.DRAFT,
+    };
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.DELETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: fixedNow,
+    });
+
+    await expect(service.createProduct(dto, adminId)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_NOT_AVAILABLE',
+        message: 'File is not available',
+        data: {
+          fileId,
+        },
       },
     });
 
@@ -445,13 +481,17 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.POST_IMAGE,
+      deletedAt: null,
     });
 
     await expect(service.createProduct(dto, adminId)).rejects.toMatchObject({
-      status: 400,
+      status: 409,
       response: {
-        errorCode: 'P400_PRODUCT_IMAGE_INVALID',
-        message: 'The file cannot be used as a product image',
+        errorCode: 'F409_FILE_PURPOSE_MISMATCH',
+        message: 'File purpose does not match',
+        data: {
+          fileId,
+        },
       },
     });
 
@@ -1286,6 +1326,7 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     productUpdateMock.mockResolvedValue(
@@ -1359,6 +1400,7 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     productUpdateMock.mockResolvedValue(
@@ -1449,6 +1491,7 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     productUpdateMock.mockResolvedValue(
@@ -1496,6 +1539,7 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     productUpdateMock.mockResolvedValue(
@@ -1639,6 +1683,7 @@ describe('ProductsService', () => {
       id: newFileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     productUpdateMock.mockResolvedValue(
@@ -1659,12 +1704,12 @@ describe('ProductsService', () => {
     expect(fileFindFirstMock).toHaveBeenCalledWith({
       where: {
         id: newFileId,
-        deletedAt: null,
       },
       select: {
         id: true,
         status: true,
         purpose: true,
+        deletedAt: true,
       },
     });
 
@@ -1683,7 +1728,7 @@ describe('ProductsService', () => {
     );
   });
 
-  it('should reject an invalid replacement image', async () => {
+  it('should reject an unavailable replacement image', async () => {
     const newFileId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
     const dto: UpdateProductDto = {
@@ -1696,14 +1741,50 @@ describe('ProductsService', () => {
       id: newFileId,
       status: FileStatus.PENDING,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
+    });
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'F409_FILE_NOT_AVAILABLE',
+        message: 'File is not available',
+        data: {
+          fileId: newFileId,
+        },
+      },
+    });
+
+    expect(productUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a replacement image with a non-product-image purpose', async () => {
+    const newFileId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    const dto: UpdateProductDto = {
+      imageFileId: newFileId,
+    };
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    fileFindFirstMock.mockResolvedValue({
+      id: newFileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.POST_IMAGE,
+      deletedAt: null,
     });
 
     await expect(
       service.updateProduct(productId, dto, adminId),
     ).rejects.toMatchObject({
-      status: 400,
+      status: 409,
       response: {
-        errorCode: 'P400_PRODUCT_IMAGE_INVALID',
+        errorCode: 'F409_FILE_PURPOSE_MISMATCH',
+        message: 'File purpose does not match',
+        data: {
+          fileId: newFileId,
+        },
       },
     });
 
@@ -1728,6 +1809,7 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     productUpdateMock.mockResolvedValue(
@@ -1769,6 +1851,7 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     await expect(
@@ -1809,6 +1892,7 @@ describe('ProductsService', () => {
       id: fileId,
       status: FileStatus.COMPLETED,
       purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
     });
 
     productUpdateMock.mockResolvedValue(
