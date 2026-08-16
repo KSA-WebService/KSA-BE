@@ -34,7 +34,7 @@ export class UsersService {
 
     if (!user) {
       throw new ForbiddenException({
-        errorCode: 'A403',
+        errorCode: 'A403_ACTIVE_USER_REQUIRED',
         message: 'Active user access is required',
       });
     }
@@ -69,7 +69,7 @@ export class UsersService {
 
     if (!user) {
       throw new ForbiddenException({
-        errorCode: 'A403',
+        errorCode: 'A403_ACTIVE_USER_REQUIRED',
         message: 'Active user access is required',
       });
     }

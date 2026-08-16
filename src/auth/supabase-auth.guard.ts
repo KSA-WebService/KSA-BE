@@ -31,7 +31,7 @@ export class SupabaseAuthGuard implements CanActivate {
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new UnauthorizedException({
-        errorCode: 'A401',
+        errorCode: 'A401_AUTHENTICATION_REQUIRED',
         message: 'Access token is required',
       });
     }
@@ -40,7 +40,7 @@ export class SupabaseAuthGuard implements CanActivate {
 
     if (!token) {
       throw new UnauthorizedException({
-        errorCode: 'A401',
+        errorCode: 'A401_AUTHENTICATION_REQUIRED',
         message: 'Access token is required',
       });
     }
@@ -57,7 +57,7 @@ export class SupabaseAuthGuard implements CanActivate {
 
     if (error || !user) {
       throw new UnauthorizedException({
-        errorCode: 'A401',
+        errorCode: 'A401_INVALID_ACCESS_TOKEN',
         message: error?.message ?? 'Invalid access token',
         data: {
           status: error?.status,
@@ -83,7 +83,7 @@ export class SupabaseAuthGuard implements CanActivate {
 
     if (!hasActiveUserAccess) {
       throw new ForbiddenException({
-        errorCode: 'A403',
+        errorCode: 'A403_ACTIVE_USER_REQUIRED',
         message: 'Active user access is required',
       });
     }

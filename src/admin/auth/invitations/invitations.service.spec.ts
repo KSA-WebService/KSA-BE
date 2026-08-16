@@ -158,7 +158,7 @@ describe('InvitationsService', () => {
         expect.objectContaining({
           whitelistUserId,
           sendStatus: InvitationSendStatusValue.FAILED,
-          errorCode: 'I404_WHITELIST_USER',
+          errorCode: 'I404_WHITELIST_USER_NOT_FOUND',
           errorMessage: 'Whitelist user not found',
         }),
       );
@@ -300,7 +300,7 @@ describe('InvitationsService', () => {
         expect.objectContaining({
           whitelistUserId,
           sendStatus: InvitationResendStatusValue.FAILED,
-          errorCode: 'I404_WHITELIST_USER',
+          errorCode: 'I404_WHITELIST_USER_NOT_FOUND',
           errorMessage: 'Whitelist user not found',
         }),
       );

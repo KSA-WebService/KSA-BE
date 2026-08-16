@@ -26,7 +26,7 @@ export class AdminGuard implements CanActivate {
 
     if (!authenticatedUserId) {
       throw new UnauthorizedException({
-        errorCode: 'A401',
+        errorCode: 'A401_AUTHENTICATION_REQUIRED',
         message: 'Authenticated user information is missing',
       });
     }
@@ -50,7 +50,7 @@ export class AdminGuard implements CanActivate {
 
     if (!hasAdminAccess) {
       throw new ForbiddenException({
-        errorCode: 'A403',
+        errorCode: 'A403_ADMIN_ACCESS_REQUIRED',
         message: 'Active admin access is required',
       });
     }

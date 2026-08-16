@@ -29,7 +29,7 @@ export class AdminProfileService {
 
     if (!admin) {
       throw new ForbiddenException({
-        errorCode: 'A403',
+        errorCode: 'A403_ADMIN_ACCESS_REQUIRED',
         message: 'Active admin access is required',
       });
     }
