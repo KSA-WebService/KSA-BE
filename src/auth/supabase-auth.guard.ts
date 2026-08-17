@@ -58,11 +58,8 @@ export class SupabaseAuthGuard implements CanActivate {
     if (error || !user) {
       throw new UnauthorizedException({
         errorCode: 'A401_INVALID_ACCESS_TOKEN',
-        message: error?.message ?? 'Invalid access token',
-        data: {
-          status: error?.status,
-          name: error?.name,
-        },
+        message: 'Invalid access token',
+        data: null,
       });
     }
 
