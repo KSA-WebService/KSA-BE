@@ -83,6 +83,16 @@ describe('InvitationsService', () => {
     invitationStatus: WhitelistInvitationStatus.INVITED,
   };
 
+  const acceptedWhitelistUser = {
+    ...pendingWhitelistUser,
+    invitationStatus: WhitelistInvitationStatus.ACCEPTED,
+  };
+
+  const linkedWhitelistUser = {
+    ...pendingWhitelistUser,
+    userId: '7d4e9c1a-4444-4d22-8e20-abc123456789',
+  };
+
   const dto: SendInvitationsDto = {
     whitelistUserIds: [whitelistUserId],
     expiresInHours: 24,
@@ -166,6 +176,93 @@ describe('InvitationsService', () => {
       expect(invitationCreateMock).not.toHaveBeenCalled();
       expect(sendInvitationEmailMock).not.toHaveBeenCalled();
     });
+
+    it('should skip invitation sending when the whitelist user is already linked to an account', async () => {
+      whitelistUserFindManyMock.mockResolvedValue([linkedWhitelistUser]);
+
+      const result = await service.send(dto, adminId);
+
+      expect(result.results[0]).toEqual(
+        expect.objectContaining({
+          whitelistUserId,
+          email: linkedWhitelistUser.email,
+          sendStatus: InvitationSendStatusValue.SKIPPED,
+          errorCode: 'I409_ACCOUNT_ALREADY_LINKED',
+          errorMessage: 'The whitelist user is already linked to an account',
+        }),
+      );
+
+      expect(invitationCreateMock).not.toHaveBeenCalled();
+      expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+    });
+
+    it('should skip invitation sending when the invitation has already been accepted', async () => {
+      whitelistUserFindManyMock.mockResolvedValue([acceptedWhitelistUser]);
+
+      const result = await service.send(dto, adminId);
+
+      expect(result.results[0]).toEqual(
+        expect.objectContaining({
+          whitelistUserId,
+          email: acceptedWhitelistUser.email,
+          sendStatus: InvitationSendStatusValue.SKIPPED,
+          errorCode: 'I409_INVITATION_ALREADY_ACCEPTED',
+          errorMessage: 'The invitation has already been accepted',
+        }),
+      );
+
+      expect(invitationCreateMock).not.toHaveBeenCalled();
+      expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+    });
+
+    it('should require the resend API when an invitation has already been sent', async () => {
+      whitelistUserFindManyMock.mockResolvedValue([invitedWhitelistUser]);
+
+      const result = await service.send(dto, adminId);
+
+      expect(result.results[0]).toEqual(
+        expect.objectContaining({
+          whitelistUserId,
+          sendStatus: InvitationSendStatusValue.SKIPPED,
+          errorCode: 'I409_ALREADY_INVITED',
+          errorMessage:
+            'An invitation has already been sent. Use the resend API.',
+        }),
+      );
+
+      expect(invitationCreateMock).not.toHaveBeenCalled();
+      expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      WhitelistInvitationStatus.EXPIRED,
+      WhitelistInvitationStatus.FAILED,
+    ])(
+      'should require the resend API when the whitelist invitation status is %s',
+      async (invitationStatus) => {
+        whitelistUserFindManyMock.mockResolvedValue([
+          {
+            ...pendingWhitelistUser,
+            invitationStatus,
+          },
+        ]);
+
+        const result = await service.send(dto, adminId);
+
+        expect(result.results[0]).toEqual(
+          expect.objectContaining({
+            whitelistUserId,
+            sendStatus: InvitationSendStatusValue.SKIPPED,
+            errorCode: 'I409_RESEND_REQUIRED',
+            errorMessage:
+              'This whitelist user must be processed through the resend API',
+          }),
+        );
+
+        expect(invitationCreateMock).not.toHaveBeenCalled();
+        expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+      },
+    );
 
     it('should revoke the new invitation when the whitelist state changes after the email is sent', async () => {
       whitelistUserFindManyMock.mockResolvedValue([pendingWhitelistUser]);
@@ -302,6 +399,63 @@ describe('InvitationsService', () => {
           sendStatus: InvitationResendStatusValue.FAILED,
           errorCode: 'I404_WHITELIST_USER_NOT_FOUND',
           errorMessage: 'Whitelist user not found',
+        }),
+      );
+
+      expect(invitationCreateMock).not.toHaveBeenCalled();
+      expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+    });
+
+    it('should skip invitation resending when the whitelist user is already linked to an account', async () => {
+      whitelistUserFindManyMock.mockResolvedValue([linkedWhitelistUser]);
+
+      const result = await service.resend(dto, adminId);
+
+      expect(result.results[0]).toEqual(
+        expect.objectContaining({
+          whitelistUserId,
+          email: linkedWhitelistUser.email,
+          sendStatus: InvitationResendStatusValue.SKIPPED,
+          errorCode: 'I409_ACCOUNT_ALREADY_LINKED',
+          errorMessage: 'The whitelist user is already linked to an account',
+        }),
+      );
+
+      expect(invitationCreateMock).not.toHaveBeenCalled();
+      expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+    });
+
+    it('should skip invitation resending when the invitation has already been accepted', async () => {
+      whitelistUserFindManyMock.mockResolvedValue([acceptedWhitelistUser]);
+
+      const result = await service.resend(dto, adminId);
+
+      expect(result.results[0]).toEqual(
+        expect.objectContaining({
+          whitelistUserId,
+          email: acceptedWhitelistUser.email,
+          sendStatus: InvitationResendStatusValue.SKIPPED,
+          errorCode: 'I409_INVITATION_ALREADY_ACCEPTED',
+          errorMessage: 'The invitation has already been accepted',
+        }),
+      );
+
+      expect(invitationCreateMock).not.toHaveBeenCalled();
+      expect(sendInvitationEmailMock).not.toHaveBeenCalled();
+    });
+
+    it('should require the initial send API for a pending whitelist user', async () => {
+      whitelistUserFindManyMock.mockResolvedValue([pendingWhitelistUser]);
+
+      const result = await service.resend(dto, adminId);
+
+      expect(result.results[0]).toEqual(
+        expect.objectContaining({
+          whitelistUserId,
+          sendStatus: InvitationResendStatusValue.SKIPPED,
+          errorCode: 'I409_INITIAL_SEND_REQUIRED',
+          errorMessage:
+            'The initial invitation must be sent through the send API',
         }),
       );
 

@@ -18,6 +18,7 @@ describe('WhitelistUsersService', () => {
   let service: WhitelistUsersService;
 
   const whitelistUserFindManyMock = jest.fn();
+  const whitelistUserFindFirstMock = jest.fn();
   const userFindFirstMock = jest.fn();
   const userFindManyMock = jest.fn();
 
@@ -49,6 +50,7 @@ describe('WhitelistUsersService', () => {
   const prismaServiceMock = {
     whitelistedUser: {
       findMany: whitelistUserFindManyMock,
+      findFirst: whitelistUserFindFirstMock,
     },
     user: {
       findFirst: userFindFirstMock,
@@ -86,6 +88,135 @@ describe('WhitelistUsersService', () => {
     service = new WhitelistUsersService(
       prismaServiceMock as unknown as PrismaService,
     );
+  });
+
+  describe('findOne', () => {
+    it('should return inviter and latest invitation details', async () => {
+      const invitedAt = new Date('2026-08-10T03:00:00.000Z');
+      const sentAt = new Date('2026-08-10T03:00:00.000Z');
+      const expiresAt = new Date('2026-08-11T03:00:00.000Z');
+
+      const invitationId = 'a5b922c5-9ca5-4c29-81e6-8faec8fbda54';
+
+      whitelistUserFindFirstMock.mockResolvedValue({
+        id: whitelistUserId,
+        name: baseWhitelistUser.name,
+        studentNumber: baseWhitelistUser.studentNumber,
+        email: baseWhitelistUser.email,
+        invitationStatus: WhitelistInvitationStatus.INVITED,
+        userId: null,
+        invitedAt,
+        acceptedAt: null,
+        createdAt,
+        updatedAt,
+        inviter: {
+          id: adminId,
+          name: 'KSA Administrator',
+        },
+        invitations: [
+          {
+            id: invitationId,
+            linkStatus: InvitationLinkStatus.ACTIVE,
+            sentAt,
+            expiresAt,
+            acceptedAt: null,
+          },
+        ],
+      });
+
+      await expect(service.findOne(whitelistUserId)).resolves.toEqual({
+        whitelistUserId,
+        name: baseWhitelistUser.name,
+        studentNumber: baseWhitelistUser.studentNumber,
+        email: baseWhitelistUser.email,
+        invitationStatus: 'invited',
+        userId: null,
+        invitedBy: {
+          userId: adminId,
+          name: 'KSA Administrator',
+        },
+        invitedAt,
+        acceptedAt: null,
+        createdAt,
+        updatedAt,
+        latestInvitation: {
+          invitationId,
+          linkStatus: 'active',
+          sentAt,
+          expiresAt,
+          acceptedAt: null,
+        },
+      });
+
+      expect(whitelistUserFindFirstMock).toHaveBeenCalledWith({
+        where: {
+          id: whitelistUserId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          name: true,
+          studentNumber: true,
+          email: true,
+          invitationStatus: true,
+          userId: true,
+          invitedAt: true,
+          acceptedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          inviter: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          invitations: {
+            orderBy: [
+              {
+                sentAt: 'desc',
+              },
+              {
+                createdAt: 'desc',
+              },
+            ],
+            take: 1,
+            select: {
+              id: true,
+              linkStatus: true,
+              sentAt: true,
+              expiresAt: true,
+              acceptedAt: true,
+            },
+          },
+        },
+      });
+    });
+
+    it('should return null inviter and latest invitation when none exist', async () => {
+      whitelistUserFindFirstMock.mockResolvedValue({
+        id: whitelistUserId,
+        name: baseWhitelistUser.name,
+        studentNumber: baseWhitelistUser.studentNumber,
+        email: baseWhitelistUser.email,
+        invitationStatus: WhitelistInvitationStatus.PENDING,
+        userId: null,
+        invitedAt: null,
+        acceptedAt: null,
+        createdAt,
+        updatedAt,
+        inviter: null,
+        invitations: [],
+      });
+
+      await expect(service.findOne(whitelistUserId)).resolves.toMatchObject({
+        whitelistUserId,
+        invitationStatus: 'pending',
+        invitedBy: null,
+        invitedAt: null,
+        acceptedAt: null,
+        latestInvitation: null,
+      });
+    });
   });
 
   describe('remove', () => {
@@ -642,6 +773,10 @@ describe('WhitelistUsersService', () => {
         );
 
         expect(transactionMock).not.toHaveBeenCalled();
+
+        expect(transactionWhitelistUserUpdateManyMock).not.toHaveBeenCalled();
+        expect(transactionWhitelistUserCreateMock).not.toHaveBeenCalled();
+        expect(transactionAdminActionLogCreateMock).not.toHaveBeenCalled();
       },
     );
 
