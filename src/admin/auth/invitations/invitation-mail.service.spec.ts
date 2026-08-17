@@ -71,6 +71,8 @@ describe('InvitationMailService', () => {
   });
 
   it('should send an invitation using mock mode by default', async () => {
+    process.env.NODE_ENV = 'test';
+
     delete process.env.INVITATION_MAIL_MODE;
     delete process.env.INVITATION_MOCK_FAILURE_EMAILS;
 
@@ -91,6 +93,52 @@ describe('InvitationMailService', () => {
     );
 
     expect(resendConstructorMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject mock mode outside development and test environments', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.INVITATION_MAIL_MODE = 'mock';
+
+    await expect(service.sendInvitationEmail(params)).rejects.toThrow(
+      'Mock invitation mail mode is only allowed in development or test environments',
+    );
+
+    expect(resendConstructorMock).not.toHaveBeenCalled();
+    expect(resendSendMock).not.toHaveBeenCalled();
+  });
+
+  it('should log the invitation URL only when explicitly enabled in development', async () => {
+    process.env.NODE_ENV = 'development';
+    process.env.INVITATION_MAIL_MODE = 'mock';
+    process.env.INVITATION_MOCK_LOG_URL = 'true';
+
+    const warnSpy = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+
+    await service.sendInvitationEmail(params);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      `[LOCAL MOCK ONLY] Invitation URL (${params.idempotencyKey}): ${params.invitationUrl}`,
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('should not log the invitation URL outside development even when explicitly enabled', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.INVITATION_MAIL_MODE = 'mock';
+    process.env.INVITATION_MOCK_LOG_URL = 'true';
+
+    const warnSpy = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+
+    await service.sendInvitationEmail(params);
+
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
   });
 
   it('should reject an unsupported mail mode', async () => {
@@ -187,6 +235,10 @@ describe('InvitationMailService', () => {
     process.env.RESEND_API_KEY = 're_test';
     process.env.INVITATION_FROM_EMAIL = 'KSA <no-reply@hkustksa.org>';
 
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+
     resendSendMock.mockResolvedValue({
       data: null,
       error: {
@@ -197,6 +249,16 @@ describe('InvitationMailService', () => {
     await expect(service.sendInvitationEmail(params)).rejects.toThrow(
       'Resend invitation email sending failed',
     );
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      `Resend invitation email failed (${params.idempotencyKey})`,
+    );
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Resend API failure'),
+    );
+
+    errorSpy.mockRestore();
   });
 
   it('should throw when Resend does not return an email ID', async () => {

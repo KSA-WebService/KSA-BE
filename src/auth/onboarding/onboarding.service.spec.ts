@@ -1,4 +1,4 @@
-import { GoneException } from '@nestjs/common';
+import { GoneException, Logger } from '@nestjs/common';
 import {
   InvitationLinkStatus,
   UserRole,
@@ -105,6 +105,7 @@ describe('OnboardingService', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     jest.useRealTimers();
   });
 
@@ -334,6 +335,88 @@ describe('OnboardingService', () => {
     });
   });
 
+  it('should not log raw account activation errors', async () => {
+    invitationValidateMock.mockResolvedValue(eligibleInvitation);
+
+    userFindFirstMock.mockResolvedValue(null);
+
+    createConfirmedUserMock.mockResolvedValue({
+      id: authUserId,
+    });
+
+    transactionMock.mockRejectedValueOnce(
+      new Error('Sensitive database transaction detail'),
+    );
+
+    deleteUserMock.mockResolvedValue(undefined);
+
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+
+    await expect(service.complete(dto)).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'A500_ACCOUNT_ACTIVATION_FAILED',
+        message: 'Failed to complete account activation',
+        data: null,
+      },
+    });
+
+    expect(deleteUserMock).toHaveBeenCalledTimes(1);
+    expect(deleteUserMock).toHaveBeenCalledWith(authUserId);
+
+    expect(errorSpy).toHaveBeenCalledWith('KSA account activation failed');
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Sensitive database transaction detail'),
+    );
+  });
+
+  it('should log the orphaned Auth user ID without the raw cleanup error', async () => {
+    invitationValidateMock.mockResolvedValue(eligibleInvitation);
+
+    userFindFirstMock.mockResolvedValue(null);
+
+    createConfirmedUserMock.mockResolvedValue({
+      id: authUserId,
+    });
+
+    transactionMock.mockRejectedValueOnce(
+      new Error('Account activation transaction failed'),
+    );
+
+    deleteUserMock.mockRejectedValueOnce(
+      new Error('Sensitive Supabase cleanup detail'),
+    );
+
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+
+    await expect(service.complete(dto)).rejects.toMatchObject({
+      status: 500,
+      response: {
+        errorCode: 'A500_ACCOUNT_ACTIVATION_FAILED',
+        message: 'Failed to complete account activation',
+        data: null,
+      },
+    });
+
+    expect(deleteUserMock).toHaveBeenCalledTimes(1);
+    expect(deleteUserMock).toHaveBeenCalledWith(authUserId);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      `Failed to remove orphaned Supabase Auth user ${authUserId}`,
+    );
+
+    expect(errorSpy).toHaveBeenCalledWith('KSA account activation failed');
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Sensitive Supabase cleanup detail'),
+    );
+  });
+
   it('should reject onboarding when a KSA user already exists', async () => {
     invitationValidateMock.mockResolvedValue(eligibleInvitation);
 
@@ -351,6 +434,39 @@ describe('OnboardingService', () => {
     });
 
     expect(createConfirmedUserMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(deleteUserMock).not.toHaveBeenCalled();
+  });
+
+  it('should not log raw Supabase Auth errors when user creation fails', async () => {
+    invitationValidateMock.mockResolvedValue(eligibleInvitation);
+
+    userFindFirstMock.mockResolvedValue(null);
+
+    createConfirmedUserMock.mockRejectedValue({
+      code: 'unexpected_provider_error',
+      message: 'Sensitive Supabase provider detail',
+    });
+
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+
+    await expect(service.complete(dto)).rejects.toMatchObject({
+      status: 503,
+      response: {
+        errorCode: 'A503_AUTH_PROVIDER_UNAVAILABLE',
+        message: 'The authentication service is temporarily unavailable',
+        data: null,
+      },
+    });
+
+    expect(errorSpy).toHaveBeenCalledWith('Supabase Auth user creation failed');
+
+    expect(errorSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Sensitive Supabase provider detail'),
+    );
+
     expect(transactionMock).not.toHaveBeenCalled();
     expect(deleteUserMock).not.toHaveBeenCalled();
   });

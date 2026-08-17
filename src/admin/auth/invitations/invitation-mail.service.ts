@@ -25,7 +25,17 @@ export class InvitationMailService {
       .trim()
       .toLowerCase();
 
+    const nodeEnv = (process.env.NODE_ENV ?? '').trim().toLowerCase();
+
     if (mailMode === 'mock') {
+      const isMockAllowed = nodeEnv === 'development' || nodeEnv === 'test';
+
+      if (!isMockAllowed) {
+        throw new Error(
+          'Mock invitation mail mode is only allowed in development or test environments',
+        );
+      }
+
       return this.sendMockInvitationEmail(params);
     }
 
@@ -52,7 +62,9 @@ export class InvitationMailService {
 
     const providerMessageId = `mock-${randomUUID()}`;
 
-    this.logger.log(`[MOCK] Invitation email accepted for ${params.email}`);
+    this.logger.log(
+      `[MOCK] Invitation email accepted (${params.idempotencyKey})`,
+    );
 
     /*
      * 로컬 Mock 테스트에서 명시적으로 허용한 경우에만
@@ -61,13 +73,13 @@ export class InvitationMailService {
      * 운영 환경에서는 절대 출력하지 않는다.
      */
     const shouldLogInvitationUrl =
-      process.env.NODE_ENV !== 'production' &&
+      (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'development' &&
       (process.env.INVITATION_MOCK_LOG_URL ?? 'false').trim().toLowerCase() ===
         'true';
 
     if (shouldLogInvitationUrl) {
       this.logger.warn(
-        `[LOCAL MOCK ONLY] Invitation URL for ${params.email}: ${params.invitationUrl}`,
+        `[LOCAL MOCK ONLY] Invitation URL (${params.idempotencyKey}): ${params.invitationUrl}`,
       );
     }
 
@@ -119,7 +131,9 @@ export class InvitationMailService {
     );
 
     if (error) {
-      this.logger.error(`Resend invitation email failed: ${error.message}`);
+      this.logger.error(
+        `Resend invitation email failed (${params.idempotencyKey})`,
+      );
 
       throw new Error('Resend invitation email sending failed');
     }
@@ -128,7 +142,9 @@ export class InvitationMailService {
       throw new Error('Resend did not return an email ID');
     }
 
-    this.logger.log(`Invitation email accepted by Resend for ${params.email}`);
+    this.logger.log(
+      `Invitation email accepted by Resend (${params.idempotencyKey}, messageId=${data.id})`,
+    );
 
     return {
       providerMessageId: data.id,
