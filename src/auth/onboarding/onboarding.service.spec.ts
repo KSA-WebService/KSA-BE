@@ -1,5 +1,6 @@
 import { GoneException } from '@nestjs/common';
 import {
+  InvitationLinkStatus,
   UserRole,
   UserStatus,
   WhitelistInvitationStatus,
@@ -141,6 +142,57 @@ describe('OnboardingService', () => {
 
     const result = await service.complete(dto);
 
+    expect(invitationValidateMock).toHaveBeenCalledTimes(1);
+    expect(invitationValidateMock).toHaveBeenCalledWith(dto.token);
+
+    expect(userFindFirstMock).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          {
+            email: {
+              equals: eligibleInvitation.whitelistUser.email,
+              mode: 'insensitive',
+            },
+          },
+          {
+            studentNumber: eligibleInvitation.whitelistUser.studentNumber,
+          },
+        ],
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    expect(createConfirmedUserMock).toHaveBeenCalledWith(
+      eligibleInvitation.whitelistUser.email,
+      dto.password,
+    );
+
+    expect(transactionUserCreateMock).toHaveBeenCalledWith({
+      data: {
+        id: authUserId,
+        name: eligibleInvitation.whitelistUser.name,
+        email: eligibleInvitation.whitelistUser.email,
+        studentNumber: eligibleInvitation.whitelistUser.studentNumber,
+        role: UserRole.STUDENT,
+        status: UserStatus.ACTIVE,
+        tokenBalance: 0,
+        agreedPrivacy: true,
+        agreedAt: expect.any(Date) as unknown,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        studentNumber: true,
+        role: true,
+        status: true,
+        tokenBalance: true,
+        createdAt: true,
+      },
+    });
+
     expect(transactionWhitelistUserUpdateManyMock).toHaveBeenCalledWith({
       where: {
         id: whitelistUserId,
@@ -152,6 +204,34 @@ describe('OnboardingService', () => {
         userId: authUserId,
         invitationStatus: WhitelistInvitationStatus.ACCEPTED,
         acceptedAt: expect.any(Date) as unknown,
+      },
+    });
+
+    expect(transactionInvitationUpdateManyMock).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: invitationId,
+        whitelistUserId,
+        linkStatus: InvitationLinkStatus.ACTIVE,
+        expiresAt: {
+          gt: expect.any(Date) as unknown,
+        },
+      },
+      data: {
+        linkStatus: InvitationLinkStatus.ACCEPTED,
+        acceptedAt: expect.any(Date) as unknown,
+      },
+    });
+
+    expect(transactionInvitationUpdateManyMock).toHaveBeenNthCalledWith(2, {
+      where: {
+        whitelistUserId,
+        id: {
+          not: invitationId,
+        },
+        linkStatus: InvitationLinkStatus.ACTIVE,
+      },
+      data: {
+        linkStatus: InvitationLinkStatus.REVOKED,
       },
     });
 
@@ -252,5 +332,50 @@ describe('OnboardingService', () => {
       message: 'This invitation link is no longer valid',
       data: null,
     });
+  });
+
+  it('should reject onboarding when a KSA user already exists', async () => {
+    invitationValidateMock.mockResolvedValue(eligibleInvitation);
+
+    userFindFirstMock.mockResolvedValue({
+      id: 'c5b922c5-9ca5-4c29-81e6-8faec8fbda56',
+    });
+
+    await expect(service.complete(dto)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'A409_ACCOUNT_ALREADY_EXISTS',
+        message: 'An account already exists for this user',
+        data: null,
+      },
+    });
+
+    expect(createConfirmedUserMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(deleteUserMock).not.toHaveBeenCalled();
+  });
+
+  it('should stop onboarding when invitation eligibility validation fails', async () => {
+    invitationValidateMock.mockRejectedValue(
+      new GoneException({
+        errorCode: 'I410_INVITATION_REVOKED',
+        message: 'This invitation link is no longer valid',
+        data: null,
+      }),
+    );
+
+    await expect(service.complete(dto)).rejects.toMatchObject({
+      status: 410,
+      response: {
+        errorCode: 'I410_INVITATION_REVOKED',
+        message: 'This invitation link is no longer valid',
+        data: null,
+      },
+    });
+
+    expect(userFindFirstMock).not.toHaveBeenCalled();
+    expect(createConfirmedUserMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(deleteUserMock).not.toHaveBeenCalled();
   });
 });
