@@ -223,9 +223,7 @@ export class OnboardingService {
         throw error;
       }
 
-      this.logger.error(
-        `KSA account activation failed: ${this.getErrorMessage(error)}`,
-      );
+      this.logger.error('KSA account activation failed');
 
       throw new InternalServerErrorException({
         errorCode: 'A500_ACCOUNT_ACTIVATION_FAILED',
@@ -297,9 +295,7 @@ export class OnboardingService {
       throw this.weakPasswordException();
     }
 
-    this.logger.error(
-      `Supabase Auth user creation failed: ${this.getErrorMessage(error)}`,
-    );
+    this.logger.error('Supabase Auth user creation failed');
 
     throw new ServiceUnavailableException({
       errorCode: 'A503_AUTH_PROVIDER_UNAVAILABLE',
@@ -311,14 +307,13 @@ export class OnboardingService {
   private async compensateCreatedAuthUser(userId: string): Promise<void> {
     try {
       await this.supabaseAdminService.deleteUser(userId);
-    } catch (cleanupError: unknown) {
+    } catch {
       /*
        * 사용자 응답에는 Auth User ID를 노출하지 않지만,
        * 서버 로그에는 수동 정리를 위해 남긴다.
        */
       this.logger.error(
-        `Failed to remove orphaned Supabase Auth user ${userId}: ` +
-          this.getErrorMessage(cleanupError),
+        `Failed to remove orphaned Supabase Auth user ${userId}`,
       );
     }
   }
@@ -334,13 +329,5 @@ export class OnboardingService {
     }
 
     return undefined;
-  }
-
-  private getErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    return 'Unknown error';
   }
 }

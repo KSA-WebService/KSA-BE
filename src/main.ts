@@ -1,8 +1,10 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+
+const bootstrapLogger = new Logger('Bootstrap');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -33,7 +35,10 @@ async function bootstrap() {
 
   await app.listen(port);
 
-  console.log(`Server is running on http://localhost:${port}`);
+  bootstrapLogger.log(`KSA backend is running on port ${port}`);
 }
 
-bootstrap();
+void bootstrap().catch(() => {
+  bootstrapLogger.error('Application bootstrap failed');
+  process.exitCode = 1;
+});
