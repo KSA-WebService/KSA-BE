@@ -5,6 +5,7 @@ import {
   AdminActionType,
   FilePurpose,
   FileStatus,
+  Prisma,
   ProductType,
   PublicationStatus,
 } from '@prisma/client';
@@ -1380,6 +1381,10 @@ describe('ProductsService', () => {
         },
       },
     });
+
+    expect(transactionMock).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
   });
 
   it('should allow changing product name and token price before any order exists', async () => {
@@ -1932,6 +1937,90 @@ describe('ProductsService', () => {
         message: 'Failed to update the product',
       },
     });
+  });
+
+  it('should retry a P2034 conflict when updating a product', async () => {
+    const dto: UpdateProductDto = {
+      stockQuantity: 15,
+    };
+
+    const conflictError = new Prisma.PrismaClientKnownRequestError(
+      'Transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    transactionMock.mockRejectedValueOnce(conflictError);
+
+    productTransactionFindFirstMock.mockResolvedValue(makeExistingProduct());
+
+    fileFindFirstMock.mockResolvedValue({
+      id: fileId,
+      status: FileStatus.COMPLETED,
+      purpose: FilePurpose.PRODUCT_IMAGE,
+      deletedAt: null,
+    });
+
+    productUpdateMock.mockResolvedValue(
+      makeUpdatedProduct({
+        stockQuantity: 15,
+      }),
+    );
+
+    adminActionLogCreateMock.mockResolvedValue({
+      id: 'audit-log-id',
+    });
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).resolves.toMatchObject({
+      productId,
+      stockQuantity: 15,
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(2);
+
+    expect(transactionMock).toHaveBeenLastCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
+
+  it('should return P409 after product update transaction retries are exhausted', async () => {
+    const dto: UpdateProductDto = {
+      stockQuantity: 15,
+    };
+
+    const conflictError = new Prisma.PrismaClientKnownRequestError(
+      'Transaction conflict',
+      {
+        code: 'P2034',
+        clientVersion: 'test',
+      },
+    );
+
+    transactionMock.mockRejectedValue(conflictError);
+
+    await expect(
+      service.updateProduct(productId, dto, adminId),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: {
+        errorCode: 'P409_PRODUCT_CONCURRENT_UPDATE',
+        message:
+          'Product could not be updated due to a concurrent update. Please try again',
+      },
+    });
+
+    expect(transactionMock).toHaveBeenCalledTimes(3);
+
+    expect(transactionMock).toHaveBeenLastCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+
+    expect(productUpdateMock).not.toHaveBeenCalled();
+    expect(adminActionLogCreateMock).not.toHaveBeenCalled();
   });
 
   it('should return the paginated public product list', async () => {

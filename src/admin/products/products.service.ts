@@ -576,7 +576,7 @@ export class ProductsService {
     }
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      return await this.runSerializableTransaction(async (tx) => {
         const existingProduct = await tx.product.findFirst({
           where: {
             id: productId,
