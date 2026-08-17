@@ -120,7 +120,7 @@ describe('SupabaseAuthGuard', () => {
     expect(userFindUniqueMock).not.toHaveBeenCalled();
   });
 
-  it('should reject an invalid Supabase access token', async () => {
+  it('should reject an invalid Supabase access token without exposing provider details', async () => {
     const { context } = createContext('Bearer invalid-token');
 
     getUserMock.mockResolvedValue({
@@ -138,11 +138,31 @@ describe('SupabaseAuthGuard', () => {
       status: 401,
       response: {
         errorCode: 'A401_INVALID_ACCESS_TOKEN',
-        message: 'Invalid JWT',
-        data: {
-          status: 401,
-          name: 'AuthApiError',
-        },
+        message: 'Invalid access token',
+        data: null,
+      },
+    });
+
+    expect(getUserMock).toHaveBeenCalledWith('invalid-token');
+    expect(userFindUniqueMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject a missing Supabase user as an invalid access token', async () => {
+    const { context } = createContext('Bearer invalid-token');
+
+    getUserMock.mockResolvedValue({
+      data: {
+        user: null,
+      },
+      error: null,
+    });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({
+      status: 401,
+      response: {
+        errorCode: 'A401_INVALID_ACCESS_TOKEN',
+        message: 'Invalid access token',
+        data: null,
       },
     });
 
