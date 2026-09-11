@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Patch,
   Query,
   Delete,
   Req,
@@ -22,6 +23,7 @@ import {
   ImportWhitelistUsersDto,
   ImportWhitelistUsersResponse,
 } from './dto/import-whitelist-users.dto';
+import { UpdateWhitelistUserDto } from './dto/update-whitelist-user.dto';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -45,6 +47,20 @@ export class WhitelistUsersController {
     whitelistUserId: string,
   ) {
     return this.whitelistUsersService.findOne(whitelistUserId);
+  }
+
+  @Patch(':whitelistUserId')
+  async update(
+    @Param('whitelistUserId', new ParseUUIDPipe({ version: '4' }))
+    whitelistUserId: string,
+    @Body() updateWhitelistUserDto: UpdateWhitelistUserDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.whitelistUsersService.update(
+      whitelistUserId,
+      updateWhitelistUserDto,
+      request.user.id,
+    );
   }
 
   @Delete(':whitelistUserId')

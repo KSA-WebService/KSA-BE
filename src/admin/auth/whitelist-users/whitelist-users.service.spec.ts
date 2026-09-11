@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   AdminAction,
   AdminActionType,
@@ -27,6 +31,8 @@ describe('WhitelistUsersService', () => {
   const transactionWhitelistUserCreateMock = jest.fn();
   const transactionWhitelistUserFindUniqueOrThrowMock = jest.fn();
 
+  const transactionUserFindFirstMock = jest.fn();
+
   const transactionInvitationUpdateManyMock = jest.fn();
   const transactionAdminActionLogCreateMock = jest.fn();
 
@@ -36,6 +42,9 @@ describe('WhitelistUsersService', () => {
       updateMany: transactionWhitelistUserUpdateManyMock,
       create: transactionWhitelistUserCreateMock,
       findUniqueOrThrow: transactionWhitelistUserFindUniqueOrThrowMock,
+    },
+    user: {
+      findFirst: transactionUserFindFirstMock,
     },
     invitation: {
       updateMany: transactionInvitationUpdateManyMock,
@@ -216,6 +225,382 @@ describe('WhitelistUsersService', () => {
         acceptedAt: null,
         latestInvitation: null,
       });
+    });
+  });
+
+  describe('update', () => {
+    const editableWhitelistUser = {
+      ...baseWhitelistUser,
+      invitationStatus: WhitelistInvitationStatus.INVITED,
+      invitedAt: new Date('2026-08-10T03:00:00.000Z'),
+      acceptedAt: null,
+      updatedAt,
+    };
+
+    it('should update the name of an invited whitelist user without revoking invitations', async () => {
+      transactionWhitelistUserFindFirstMock.mockResolvedValue(
+        editableWhitelistUser,
+      );
+
+      transactionWhitelistUserUpdateManyMock.mockResolvedValue({
+        count: 1,
+      });
+
+      transactionAdminActionLogCreateMock.mockResolvedValue({
+        id: 1,
+      });
+
+      transactionWhitelistUserFindUniqueOrThrowMock.mockResolvedValue({
+        ...editableWhitelistUser,
+        name: 'Corrected Student',
+      });
+
+      const result = await service.update(
+        whitelistUserId,
+        {
+          name: 'Corrected Student',
+          reason: 'Corrected after checking the official student list',
+        },
+        adminId,
+      );
+
+      expect(transactionWhitelistUserUpdateManyMock).toHaveBeenCalledWith({
+        where: {
+          id: whitelistUserId,
+          deletedAt: null,
+          userId: null,
+          invitationStatus: {
+            not: WhitelistInvitationStatus.ACCEPTED,
+          },
+          updatedAt,
+        },
+        data: {
+          name: 'Corrected Student',
+          studentNumber: editableWhitelistUser.studentNumber,
+          email: editableWhitelistUser.email,
+        },
+      });
+
+      expect(transactionInvitationUpdateManyMock).not.toHaveBeenCalled();
+
+      expect(transactionAdminActionLogCreateMock).toHaveBeenCalledWith({
+        data: {
+          adminId,
+          actionType: AdminActionType.WHITELIST,
+          action: AdminAction.UPDATE_WHITELIST_USER,
+          targetId: whitelistUserId,
+          metadata: {
+            previous: {
+              name: editableWhitelistUser.name,
+              studentNumber: editableWhitelistUser.studentNumber,
+              email: editableWhitelistUser.email,
+            },
+            updated: {
+              name: 'Corrected Student',
+              studentNumber: editableWhitelistUser.studentNumber,
+              email: editableWhitelistUser.email,
+            },
+            changedFields: ['name'],
+            reason: 'Corrected after checking the official student list',
+            revokedInvitationCount: 0,
+          },
+        },
+      });
+
+      expect(result).toEqual({
+        whitelistUserId,
+        name: 'Corrected Student',
+        studentNumber: editableWhitelistUser.studentNumber,
+        email: editableWhitelistUser.email,
+        invitationStatus: 'invited',
+        userId: null,
+        invitedAt: editableWhitelistUser.invitedAt,
+        acceptedAt: null,
+        updatedAt,
+      });
+    });
+
+    it('should update the email and revoke active invitations', async () => {
+      transactionWhitelistUserFindFirstMock
+        .mockResolvedValueOnce(editableWhitelistUser)
+        .mockResolvedValueOnce(null);
+
+      transactionUserFindFirstMock.mockResolvedValue(null);
+
+      transactionWhitelistUserUpdateManyMock.mockResolvedValue({
+        count: 1,
+      });
+
+      transactionInvitationUpdateManyMock.mockResolvedValue({
+        count: 1,
+      });
+
+      transactionAdminActionLogCreateMock.mockResolvedValue({
+        id: 1,
+      });
+
+      const correctedEmail = 'corrected@connect.ust.hk';
+
+      transactionWhitelistUserFindUniqueOrThrowMock.mockResolvedValue({
+        ...editableWhitelistUser,
+        email: correctedEmail,
+      });
+
+      const result = await service.update(
+        whitelistUserId,
+        {
+          email: correctedEmail,
+          reason: 'Corrected after student reported a wrong email',
+        },
+        adminId,
+      );
+
+      expect(transactionWhitelistUserFindFirstMock).toHaveBeenNthCalledWith(2, {
+        where: {
+          id: {
+            not: whitelistUserId,
+          },
+          email: {
+            equals: correctedEmail,
+            mode: 'insensitive',
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      expect(transactionUserFindFirstMock).toHaveBeenCalledWith({
+        where: {
+          email: {
+            equals: correctedEmail,
+            mode: 'insensitive',
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      expect(transactionInvitationUpdateManyMock).toHaveBeenCalledWith({
+        where: {
+          whitelistUserId,
+          linkStatus: InvitationLinkStatus.ACTIVE,
+        },
+        data: {
+          linkStatus: InvitationLinkStatus.REVOKED,
+        },
+      });
+
+      expect(transactionAdminActionLogCreateMock).toHaveBeenCalledWith({
+        data: {
+          adminId,
+          actionType: AdminActionType.WHITELIST,
+          action: AdminAction.UPDATE_WHITELIST_USER,
+          targetId: whitelistUserId,
+          metadata: {
+            previous: {
+              name: editableWhitelistUser.name,
+              studentNumber: editableWhitelistUser.studentNumber,
+              email: editableWhitelistUser.email,
+            },
+            updated: {
+              name: editableWhitelistUser.name,
+              studentNumber: editableWhitelistUser.studentNumber,
+              email: correctedEmail,
+            },
+            changedFields: ['email'],
+            reason: 'Corrected after student reported a wrong email',
+            revokedInvitationCount: 1,
+          },
+        },
+      });
+
+      expect(result.email).toBe(correctedEmail);
+      expect(result.invitationStatus).toBe('invited');
+    });
+
+    it('should update the student number when it is not already in use', async () => {
+      transactionWhitelistUserFindFirstMock
+        .mockResolvedValueOnce(editableWhitelistUser)
+        .mockResolvedValueOnce(null);
+
+      transactionUserFindFirstMock.mockResolvedValue(null);
+
+      transactionWhitelistUserUpdateManyMock.mockResolvedValue({
+        count: 1,
+      });
+
+      transactionAdminActionLogCreateMock.mockResolvedValue({
+        id: 1,
+      });
+
+      const correctedStudentNumber = '20999999';
+
+      transactionWhitelistUserFindUniqueOrThrowMock.mockResolvedValue({
+        ...editableWhitelistUser,
+        studentNumber: correctedStudentNumber,
+      });
+
+      const result = await service.update(
+        whitelistUserId,
+        {
+          studentNumber: correctedStudentNumber,
+          reason: 'Corrected after verification',
+        },
+        adminId,
+      );
+
+      expect(transactionInvitationUpdateManyMock).not.toHaveBeenCalled();
+
+      expect(result.studentNumber).toBe(correctedStudentNumber);
+    });
+
+    it('should reject an update when no identity value actually changes', async () => {
+      transactionWhitelistUserFindFirstMock.mockResolvedValue(
+        editableWhitelistUser,
+      );
+
+      await expect(
+        service.update(
+          whitelistUserId,
+          {
+            name: editableWhitelistUser.name,
+            reason: 'No actual change',
+          },
+          adminId,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(transactionWhitelistUserUpdateManyMock).not.toHaveBeenCalled();
+      expect(transactionInvitationUpdateManyMock).not.toHaveBeenCalled();
+      expect(transactionAdminActionLogCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('should reject correction of an accepted whitelist user', async () => {
+      transactionWhitelistUserFindFirstMock.mockResolvedValue({
+        ...editableWhitelistUser,
+        invitationStatus: WhitelistInvitationStatus.ACCEPTED,
+      });
+
+      await expect(
+        service.update(
+          whitelistUserId,
+          {
+            name: 'Corrected Student',
+            reason: 'Correction requested',
+          },
+          adminId,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(transactionWhitelistUserUpdateManyMock).not.toHaveBeenCalled();
+    });
+
+    it('should reject correction of a whitelist user linked to an account', async () => {
+      transactionWhitelistUserFindFirstMock.mockResolvedValue({
+        ...editableWhitelistUser,
+        userId: 'a5b922c5-9ca5-4c29-81e6-8faec8fbda54',
+      });
+
+      await expect(
+        service.update(
+          whitelistUserId,
+          {
+            name: 'Corrected Student',
+            reason: 'Correction requested',
+          },
+          adminId,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(transactionWhitelistUserUpdateManyMock).not.toHaveBeenCalled();
+    });
+
+    it('should reject an email already used by another whitelist user', async () => {
+      transactionWhitelistUserFindFirstMock
+        .mockResolvedValueOnce(editableWhitelistUser)
+        .mockResolvedValueOnce({
+          id: 'a5b922c5-9ca5-4c29-81e6-8faec8fbda54',
+        });
+
+      await expect(
+        service.update(
+          whitelistUserId,
+          {
+            email: 'duplicate@connect.ust.hk',
+            reason: 'Corrected email',
+          },
+          adminId,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(transactionUserFindFirstMock).not.toHaveBeenCalled();
+      expect(transactionWhitelistUserUpdateManyMock).not.toHaveBeenCalled();
+    });
+
+    it('should reject a student number already used by another registered user', async () => {
+      transactionWhitelistUserFindFirstMock
+        .mockResolvedValueOnce(editableWhitelistUser)
+        .mockResolvedValueOnce(null);
+
+      transactionUserFindFirstMock.mockResolvedValue({
+        id: 'a5b922c5-9ca5-4c29-81e6-8faec8fbda54',
+      });
+
+      await expect(
+        service.update(
+          whitelistUserId,
+          {
+            studentNumber: '20999999',
+            reason: 'Corrected student number',
+          },
+          adminId,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(transactionWhitelistUserUpdateManyMock).not.toHaveBeenCalled();
+    });
+
+    it('should reject the update when the whitelist state changes concurrently', async () => {
+      transactionWhitelistUserFindFirstMock.mockResolvedValue(
+        editableWhitelistUser,
+      );
+
+      transactionWhitelistUserUpdateManyMock.mockResolvedValue({
+        count: 0,
+      });
+
+      await expect(
+        service.update(
+          whitelistUserId,
+          {
+            name: 'Corrected Student',
+            reason: 'Correction requested',
+          },
+          adminId,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+
+      expect(transactionInvitationUpdateManyMock).not.toHaveBeenCalled();
+      expect(transactionAdminActionLogCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('should return not found for a deleted or missing whitelist user', async () => {
+      transactionWhitelistUserFindFirstMock.mockResolvedValue(null);
+
+      await expect(
+        service.update(
+          whitelistUserId,
+          {
+            name: 'Corrected Student',
+            reason: 'Correction requested',
+          },
+          adminId,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(transactionWhitelistUserUpdateManyMock).not.toHaveBeenCalled();
     });
   });
 

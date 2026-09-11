@@ -18,6 +18,7 @@ import {
 } from '../../../common/constants/invitation-api-values';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateWhitelistUserDto } from './dto/create-whitelist-user.dto';
+import { UpdateWhitelistUserDto } from './dto/update-whitelist-user.dto';
 import {
   GetWhitelistUsersQueryDto,
   WhitelistUserSortField,
@@ -269,6 +270,293 @@ export class WhitelistUsersService {
           }
         : null,
     };
+  }
+
+  async update(
+    whitelistUserId: string,
+    dto: UpdateWhitelistUserDto,
+    adminId: string,
+  ) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const whitelistUser = await tx.whitelistedUser.findFirst({
+          where: {
+            id: whitelistUserId,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            name: true,
+            studentNumber: true,
+            email: true,
+            invitationStatus: true,
+            userId: true,
+            invitedAt: true,
+            acceptedAt: true,
+            updatedAt: true,
+          },
+        });
+
+        if (!whitelistUser) {
+          throw new NotFoundException({
+            errorCode: 'W404_WHITELIST_USER_NOT_FOUND',
+            message: 'Whitelist user not found',
+            data: {
+              whitelistUserId,
+            },
+          });
+        }
+
+        if (
+          whitelistUser.invitationStatus ===
+            WhitelistInvitationStatus.ACCEPTED ||
+          whitelistUser.userId !== null
+        ) {
+          throw new ConflictException({
+            errorCode: 'W409_WHITELIST_USER_NOT_EDITABLE',
+            message:
+              'A registered or accepted whitelist user cannot be corrected through this endpoint',
+            data: {
+              whitelistUserId,
+            },
+          });
+        }
+
+        const nextName = dto.name ?? whitelistUser.name;
+        const nextStudentNumber =
+          dto.studentNumber ?? whitelistUser.studentNumber;
+        const nextEmail = dto.email ?? whitelistUser.email;
+
+        const nameChanged = nextName !== whitelistUser.name;
+        const studentNumberChanged =
+          nextStudentNumber !== whitelistUser.studentNumber;
+        const emailChanged = nextEmail !== whitelistUser.email;
+
+        if (!nameChanged && !studentNumberChanged && !emailChanged) {
+          throw new BadRequestException({
+            errorCode: 'W400_NO_CHANGES',
+            message: 'At least one whitelist identity field must be changed',
+            data: {
+              whitelistUserId,
+            },
+          });
+        }
+
+        if (emailChanged) {
+          const existingWhitelistByEmail = await tx.whitelistedUser.findFirst({
+            where: {
+              id: {
+                not: whitelistUserId,
+              },
+              email: {
+                equals: nextEmail,
+                mode: 'insensitive',
+              },
+            },
+            select: {
+              id: true,
+            },
+          });
+
+          if (existingWhitelistByEmail) {
+            throw new ConflictException({
+              errorCode: 'W409_EMAIL',
+              message: 'The email is already registered in the whitelist',
+              data: {
+                email: nextEmail,
+              },
+            });
+          }
+
+          const existingUserByEmail = await tx.user.findFirst({
+            where: {
+              email: {
+                equals: nextEmail,
+                mode: 'insensitive',
+              },
+            },
+            select: {
+              id: true,
+            },
+          });
+
+          if (existingUserByEmail) {
+            throw new ConflictException({
+              errorCode: 'U409_EMAIL',
+              message: 'A user with this email is already registered',
+              data: {
+                email: nextEmail,
+              },
+            });
+          }
+        }
+
+        if (studentNumberChanged) {
+          const existingWhitelistByStudentNumber =
+            await tx.whitelistedUser.findFirst({
+              where: {
+                id: {
+                  not: whitelistUserId,
+                },
+                studentNumber: nextStudentNumber,
+              },
+              select: {
+                id: true,
+              },
+            });
+
+          if (existingWhitelistByStudentNumber) {
+            throw new ConflictException({
+              errorCode: 'W409_STUDENT_NUMBER',
+              message:
+                'The student number is already registered in the whitelist',
+              data: {
+                studentNumber: nextStudentNumber,
+              },
+            });
+          }
+
+          const existingUserByStudentNumber = await tx.user.findFirst({
+            where: {
+              studentNumber: nextStudentNumber,
+            },
+            select: {
+              id: true,
+            },
+          });
+
+          if (existingUserByStudentNumber) {
+            throw new ConflictException({
+              errorCode: 'U409_STUDENT_NUMBER',
+              message: 'A user with this student number is already registered',
+              data: {
+                studentNumber: nextStudentNumber,
+              },
+            });
+          }
+        }
+
+        const updateResult = await tx.whitelistedUser.updateMany({
+          where: {
+            id: whitelistUserId,
+            deletedAt: null,
+            userId: null,
+            invitationStatus: {
+              not: WhitelistInvitationStatus.ACCEPTED,
+            },
+            updatedAt: whitelistUser.updatedAt,
+          },
+          data: {
+            name: nextName,
+            studentNumber: nextStudentNumber,
+            email: nextEmail,
+          },
+        });
+
+        if (updateResult.count !== 1) {
+          throw new ConflictException({
+            errorCode: 'W409_UPDATE_CONFLICT',
+            message:
+              'The whitelist user could not be updated because its state changed',
+            data: {
+              whitelistUserId,
+            },
+          });
+        }
+
+        let revokedInvitationCount = 0;
+
+        if (emailChanged) {
+          const revokeResult = await tx.invitation.updateMany({
+            where: {
+              whitelistUserId,
+              linkStatus: InvitationLinkStatus.ACTIVE,
+            },
+            data: {
+              linkStatus: InvitationLinkStatus.REVOKED,
+            },
+          });
+
+          revokedInvitationCount = revokeResult.count;
+        }
+
+        await tx.adminActionLog.create({
+          data: {
+            adminId,
+            actionType: AdminActionType.WHITELIST,
+            action: AdminAction.UPDATE_WHITELIST_USER,
+            targetId: whitelistUserId,
+            metadata: {
+              previous: {
+                name: whitelistUser.name,
+                studentNumber: whitelistUser.studentNumber,
+                email: whitelistUser.email,
+              },
+              updated: {
+                name: nextName,
+                studentNumber: nextStudentNumber,
+                email: nextEmail,
+              },
+              changedFields: [
+                ...(nameChanged ? ['name'] : []),
+                ...(studentNumberChanged ? ['studentNumber'] : []),
+                ...(emailChanged ? ['email'] : []),
+              ],
+              reason: dto.reason,
+              revokedInvitationCount,
+            },
+          },
+        });
+
+        const updatedWhitelistUser = await tx.whitelistedUser.findUniqueOrThrow(
+          {
+            where: {
+              id: whitelistUserId,
+            },
+            select: {
+              id: true,
+              name: true,
+              studentNumber: true,
+              email: true,
+              invitationStatus: true,
+              userId: true,
+              invitedAt: true,
+              acceptedAt: true,
+              updatedAt: true,
+            },
+          },
+        );
+
+        return {
+          whitelistUserId: updatedWhitelistUser.id,
+          name: updatedWhitelistUser.name,
+          studentNumber: updatedWhitelistUser.studentNumber,
+          email: updatedWhitelistUser.email,
+          invitationStatus:
+            WHITELIST_INVITATION_STATUS_VALUE_MAP[
+              updatedWhitelistUser.invitationStatus
+            ],
+          userId: updatedWhitelistUser.userId,
+          invitedAt: updatedWhitelistUser.invitedAt,
+          acceptedAt: updatedWhitelistUser.acceptedAt,
+          updatedAt: updatedWhitelistUser.updatedAt,
+        };
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException({
+          errorCode: 'W409_DUPLICATE',
+          message:
+            'The email or student number is already registered in the whitelist',
+          data: null,
+        });
+      }
+
+      throw error;
+    }
   }
 
   async remove(whitelistUserId: string, adminId: string) {
