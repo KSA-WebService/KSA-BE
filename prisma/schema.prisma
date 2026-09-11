@@ -130,6 +130,7 @@ enum AdminAction {
   UPDATE_USER_STATUS                @map("update_user_status")
   CREATE_WHITELIST_USER             @map("create_whitelist_user")
   IMPORT_WHITELIST_USERS            @map("import_whitelist_users")
+  UPDATE_WHITELIST_USER             @map("update_whitelist_user")
   DELETE_WHITELIST_USER             @map("delete_whitelist_user")
   SEND_INVITATION                   @map("send_invitation")
   RESEND_INVITATION                 @map("resend_invitation")
